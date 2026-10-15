@@ -1,0 +1,10 @@
+{
+	"node": "n8n-nodes-desearch.desearch",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Data & Storage", "Utility"],
+	"resources": {
+		"credentialDocumentation": [{ "url": "https://github.com/Desearch-ai/n8n-nodes-desearch?tab=readme-ov-file#credentials" }],
+		"primaryDocumentation": [{ "url": "https://desearch.ai/docs" }]
+	}
+}
