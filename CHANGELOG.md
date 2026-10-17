@@ -4,7 +4,7 @@
 
 - Credential test checks the API key without running a billed search.
 - Package no longer ships `dist/tsconfig.tsbuildinfo`.
-- Vector Desearch icon (light and dark) from the Desearch brand assets.
+- Node and credential icons use the live Desearch mark (light and dark).
 - Publish workflow: tag `v*` runs lint and build, then publishes to npm with provenance through npm trusted publishing (no token).
 
 ## 0.1.0

@@ -25,6 +25,10 @@ Create an API key in the [Desearch console](https://console.desearch.ai/api-keys
 - [Desearch API docs](https://desearch.ai/docs)
 - [n8n community nodes documentation](https://docs.n8n.io/integrations/#community-nodes)
 
+## Contact
+
+dev@desearch.ai
+
 ## License
 
 MIT
