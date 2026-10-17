@@ -18,12 +18,16 @@ The node can also be used as a tool by AI Agent nodes.
 
 ## Credentials
 
-Create an API key in the [Desearch console](https://console.desearch.ai) and add it to a **Desearch API** credential. The key is sent in the `Authorization` header.
+Create an API key in the [Desearch console](https://console.desearch.ai/api-keys) and add it to a **Desearch API** credential. The key is sent as is in the `Authorization` header (no `Bearer` prefix). The credential test checks the key without running a search, so it is not billed.
 
 ## Resources
 
 - [Desearch API docs](https://desearch.ai/docs)
 - [n8n community nodes documentation](https://docs.n8n.io/integrations/#community-nodes)
+
+## Contact
+
+dev@desearch.ai
 
 ## License
 
