@@ -41,7 +41,8 @@
       "dist/credentials/DesearchApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/Desearch/Desearch.node.js"
+      "dist/nodes/Desearch/Desearch.node.js",
+      "dist/nodes/DesearchPeopleSearch/DesearchPeopleSearch.node.js"
     ]
   },
   "devDependencies": {

@@ -1,135 +1,7 @@
-import type { IHttpRequestMethods, INodeProperties } from 'n8n-workflow';
+import type { INodeProperties } from 'n8n-workflow';
 
-import {
-	checkPeopleResponse,
-	paginateProfiles,
-	paginateResults,
-	paginateTasks,
-	prepareListProfiles,
-	prepareListTasks,
-	prepareStartSearch,
-	waitForPeopleTask,
-} from './PeopleSearchFunctions';
-
-/** URL of one People Search task, e.g. taskUrl('/pause'). */
-const taskUrl = (suffix = '') =>
-	`=/desearch/people/tasks/{{ encodeURIComponent(String($parameter.taskId).trim()) }}${suffix}`;
-
-/**
- * A People Search request. HTTP errors do not throw here: checkPeopleResponse
- * fails the item with the reason the API gives.
- */
-const request = (method: IHttpRequestMethods, url: string) => ({
-	method,
-	url,
-	ignoreHttpStatusErrors: true,
-});
-
-const output = { postReceive: [checkPeopleResponse] };
-
-const showFor = (operation: string[]) => ({
-	show: { resource: ['peopleSearch'], operation },
-});
-
-export const peopleSearchOperations: INodeProperties[] = [
-	{
-		displayName: 'Operation',
-		name: 'operation',
-		type: 'options',
-		noDataExpression: true,
-		displayOptions: { show: { resource: ['peopleSearch'] } },
-		options: [
-			{
-				name: 'Cancel Task',
-				value: 'cancelTask',
-				action: 'Cancel a people search',
-				description: 'Stop a search. You pay only for the people it delivered.',
-				routing: {
-					request: request('POST', taskUrl('/cancel')),
-					output,
-				},
-			},
-			{
-				name: 'Get Results',
-				value: 'getResults',
-				action: 'Get the people a search found',
-				description: 'Get the people a search found, optionally waiting until it finishes',
-				routing: {
-					request: request('GET', taskUrl('/results')),
-					output,
-					send: { preSend: [waitForPeopleTask], paginate: true },
-					operations: { pagination: paginateResults },
-				},
-			},
-			{
-				name: 'Get Task',
-				value: 'getTask',
-				action: 'Get a people search task',
-				description: 'Get the status, progress and cost of a search',
-				routing: {
-					request: request('GET', taskUrl()),
-					output,
-				},
-			},
-			{
-				name: 'List Profiles',
-				value: 'listProfiles',
-				action: 'List the people your searches found',
-				description: 'List everyone your searches on one platform found, with filters',
-				routing: {
-					request: request('GET', '/desearch/people/profiles'),
-					output,
-					send: { preSend: [prepareListProfiles], paginate: true },
-					operations: { pagination: paginateProfiles },
-				},
-			},
-			{
-				name: 'List Tasks',
-				value: 'listTasks',
-				action: 'List people search tasks',
-				description: 'List your People Search tasks, newest first',
-				routing: {
-					request: request('GET', '/desearch/people/tasks'),
-					output,
-					send: { preSend: [prepareListTasks], paginate: true },
-					operations: { pagination: paginateTasks },
-				},
-			},
-			{
-				name: 'Pause Task',
-				value: 'pauseTask',
-				action: 'Pause a people search',
-				description: 'Pause a search. People found so far stay available.',
-				routing: {
-					request: request('POST', taskUrl('/pause')),
-					output,
-				},
-			},
-			{
-				name: 'Resume Task',
-				value: 'resumeTask',
-				action: 'Resume a people search',
-				description: 'Continue a paused search. It is not charged again.',
-				routing: {
-					request: request('POST', taskUrl('/resume')),
-					output,
-				},
-			},
-			{
-				name: 'Start Search',
-				value: 'startSearch',
-				action: 'Start a people search',
-				description: 'Start a background search for people on X, YouTube, LinkedIn or TikTok',
-				routing: {
-					request: request('POST', '=/desearch/people/search/{{ $parameter.platform }}'),
-					output,
-					send: { preSend: [prepareStartSearch] },
-				},
-			},
-		],
-		default: 'startSearch',
-	},
-];
+// Plain data only: n8n structured-clones the description of nodes that are
+// usable as AI tools, so it must not contain functions.
 
 const platformOptions = [
 	{ name: 'LinkedIn', value: 'linkedin' },
@@ -138,10 +10,101 @@ const platformOptions = [
 	{ name: 'YouTube', value: 'youtube' },
 ];
 
-export const peopleSearchFields: INodeProperties[] = [
-	// ----------------------------------
-	//         Start Search, List Profiles
-	// ----------------------------------
+const showFor = (resource: string, operation: string[]) => ({
+	show: { resource: [resource], operation },
+});
+
+export const resourceProperty: INodeProperties = {
+	displayName: 'Resource',
+	name: 'resource',
+	type: 'options',
+	noDataExpression: true,
+	options: [
+		{
+			name: 'Profile',
+			value: 'profile',
+			description: 'The people your searches found',
+		},
+		{
+			name: 'Search',
+			value: 'search',
+			description: 'A background search for people on one platform',
+		},
+	],
+	default: 'search',
+};
+
+export const searchOperations: INodeProperties = {
+	displayName: 'Operation',
+	name: 'operation',
+	type: 'options',
+	noDataExpression: true,
+	displayOptions: { show: { resource: ['search'] } },
+	options: [
+		{
+			name: 'Cancel',
+			value: 'cancel',
+			action: 'Cancel a search',
+			description: 'Stop a search. You pay only for the people it delivered.',
+		},
+		{
+			name: 'Get',
+			value: 'get',
+			action: 'Get a search',
+			description: 'Get the status, progress and cost of a search',
+		},
+		{
+			name: 'Get Many',
+			value: 'getAll',
+			action: 'Get many searches',
+			description: 'Get your searches, newest first',
+		},
+		{
+			name: 'Get Results',
+			value: 'getResults',
+			action: 'Get the people a search found',
+			description: 'Get the people a search found, optionally waiting until it finishes',
+		},
+		{
+			name: 'Pause',
+			value: 'pause',
+			action: 'Pause a search',
+			description: 'Pause a search. People found so far stay available.',
+		},
+		{
+			name: 'Resume',
+			value: 'resume',
+			action: 'Resume a search',
+			description: 'Continue a paused search. It is not charged again.',
+		},
+		{
+			name: 'Start',
+			value: 'start',
+			action: 'Start a search',
+			description: 'Start a background search for people on X, YouTube, LinkedIn or TikTok',
+		},
+	],
+	default: 'start',
+};
+
+export const profileOperations: INodeProperties = {
+	displayName: 'Operation',
+	name: 'operation',
+	type: 'options',
+	noDataExpression: true,
+	displayOptions: { show: { resource: ['profile'] } },
+	options: [
+		{
+			name: 'Get Many',
+			value: 'getAll',
+			action: 'Get many profiles',
+			description: 'Get everyone your searches on one platform found, with filters',
+		},
+	],
+	default: 'getAll',
+};
+
+const searchStartFields: INodeProperties[] = [
 	{
 		displayName: 'Platform',
 		name: 'platform',
@@ -150,12 +113,8 @@ export const peopleSearchFields: INodeProperties[] = [
 		default: 'x',
 		required: true,
 		description: 'Where to look for people',
-		displayOptions: showFor(['startSearch', 'listProfiles']),
+		displayOptions: showFor('search', ['start']),
 	},
-
-	// ----------------------------------
-	//         Start Search
-	// ----------------------------------
 	{
 		displayName: 'Query',
 		name: 'query',
@@ -165,7 +124,7 @@ export const peopleSearchFields: INodeProperties[] = [
 		typeOptions: { rows: 2 },
 		placeholder: 'e.g. Indie hackers building in public who share their MRR',
 		description: 'Who you are looking for, in plain language (3 to 1,000 characters)',
-		displayOptions: showFor(['startSearch']),
+		displayOptions: showFor('search', ['start']),
 	},
 	{
 		displayName: 'Count',
@@ -175,7 +134,7 @@ export const peopleSearchFields: INodeProperties[] = [
 		default: 25,
 		description:
 			'How many people to find (5 to 200). The search reserves this many at the platform price and bills only the people it delivers. A search that finds no one is free.',
-		displayOptions: showFor(['startSearch']),
+		displayOptions: showFor('search', ['start']),
 	},
 	{
 		displayName: 'Filters',
@@ -183,7 +142,7 @@ export const peopleSearchFields: INodeProperties[] = [
 		type: 'collection',
 		placeholder: 'Add Filter',
 		default: {},
-		displayOptions: showFor(['startSearch']),
+		displayOptions: showFor('search', ['start']),
 		options: [
 			{
 				displayName: 'Countries',
@@ -271,7 +230,7 @@ export const peopleSearchFields: INodeProperties[] = [
 		type: 'collection',
 		placeholder: 'Add Option',
 		default: {},
-		displayOptions: showFor(['startSearch']),
+		displayOptions: showFor('search', ['start']),
 		options: [
 			{
 				displayName: 'Exclude Handles',
@@ -289,7 +248,7 @@ export const peopleSearchFields: INodeProperties[] = [
 				default: '',
 				placeholder: 'e.g. weekly-founders-2026-10-19',
 				description:
-					'Any unique string. Sending the same key again returns the first search instead of starting and charging a new one.',
+					'Any string unique to this search. Sending the same key again returns the first search instead of starting and charging a new one.',
 			},
 			{
 				displayName: 'Min Score',
@@ -301,10 +260,9 @@ export const peopleSearchFields: INodeProperties[] = [
 			},
 		],
 	},
+];
 
-	// ----------------------------------
-	//         Task operations
-	// ----------------------------------
+const searchTaskFields: INodeProperties[] = [
 	{
 		displayName: 'Task ID',
 		name: 'taskId',
@@ -312,13 +270,9 @@ export const peopleSearchFields: INodeProperties[] = [
 		required: true,
 		default: '',
 		placeholder: 'e.g. 5b33f3ee-168b-4780-9c8e-63a626781872',
-		description: 'The task_id that Start Search returned',
-		displayOptions: showFor(['getTask', 'getResults', 'pauseTask', 'resumeTask', 'cancelTask']),
+		description: 'The task_id that Start returned',
+		displayOptions: showFor('search', ['get', 'getResults', 'pause', 'resume', 'cancel']),
 	},
-
-	// ----------------------------------
-	//         Get Results
-	// ----------------------------------
 	{
 		displayName: 'Wait for Completion',
 		name: 'waitForCompletion',
@@ -326,7 +280,7 @@ export const peopleSearchFields: INodeProperties[] = [
 		default: true,
 		description:
 			'Whether to wait until the search finishes before returning people. Searches usually take 1 to 5 minutes. When off, returns the people found so far.',
-		displayOptions: showFor(['getResults']),
+		displayOptions: showFor('search', ['getResults']),
 	},
 	{
 		displayName: 'Timeout (Seconds)',
@@ -337,7 +291,7 @@ export const peopleSearchFields: INodeProperties[] = [
 		description:
 			'How long to wait. If the search is still running then, the node fails with its status and the search keeps running.',
 		displayOptions: {
-			show: { resource: ['peopleSearch'], operation: ['getResults'], waitForCompletion: [true] },
+			show: { resource: ['search'], operation: ['getResults'], waitForCompletion: [true] },
 		},
 	},
 	{
@@ -348,7 +302,7 @@ export const peopleSearchFields: INodeProperties[] = [
 		default: 15,
 		description: 'How often to check whether the search has finished',
 		displayOptions: {
-			show: { resource: ['peopleSearch'], operation: ['getResults'], waitForCompletion: [true] },
+			show: { resource: ['search'], operation: ['getResults'], waitForCompletion: [true] },
 		},
 	},
 	{
@@ -357,19 +311,15 @@ export const peopleSearchFields: INodeProperties[] = [
 		type: 'boolean',
 		default: true,
 		description: 'Whether to return all results or only up to a given limit',
-		displayOptions: showFor(['getResults']),
+		displayOptions: showFor('search', ['getResults']),
 	},
-
-	// ----------------------------------
-	//         List Tasks, List Profiles
-	// ----------------------------------
 	{
 		displayName: 'Return All',
 		name: 'returnAll',
 		type: 'boolean',
 		default: false,
 		description: 'Whether to return all results or only up to a given limit',
-		displayOptions: showFor(['listTasks', 'listProfiles']),
+		displayOptions: showFor('search', ['getAll']),
 	},
 	{
 		displayName: 'Limit',
@@ -379,24 +329,16 @@ export const peopleSearchFields: INodeProperties[] = [
 		default: 50,
 		description: 'Max number of results to return',
 		displayOptions: {
-			show: {
-				resource: ['peopleSearch'],
-				operation: ['getResults', 'listTasks', 'listProfiles'],
-				returnAll: [false],
-			},
+			show: { resource: ['search'], operation: ['getResults', 'getAll'], returnAll: [false] },
 		},
 	},
-
-	// ----------------------------------
-	//         List Tasks
-	// ----------------------------------
 	{
 		displayName: 'Filters',
 		name: 'taskFilters',
 		type: 'collection',
 		placeholder: 'Add Filter',
 		default: {},
-		displayOptions: showFor(['listTasks']),
+		displayOptions: showFor('search', ['getAll']),
 		options: [
 			{
 				displayName: 'Platform',
@@ -404,7 +346,7 @@ export const peopleSearchFields: INodeProperties[] = [
 				type: 'options',
 				options: platformOptions,
 				default: 'x',
-				description: 'Only tasks on this platform',
+				description: 'Only searches on this platform',
 			},
 			{
 				displayName: 'Status',
@@ -423,14 +365,42 @@ export const peopleSearchFields: INodeProperties[] = [
 					{ name: 'Running', value: 'running' },
 				],
 				default: [],
-				description: 'Only tasks with one of these statuses',
+				description: 'Only searches with one of these statuses',
 			},
 		],
 	},
+];
 
-	// ----------------------------------
-	//         List Profiles
-	// ----------------------------------
+const profileFields: INodeProperties[] = [
+	{
+		displayName: 'Platform',
+		name: 'platform',
+		type: 'options',
+		options: platformOptions,
+		default: 'x',
+		required: true,
+		description: 'Whose people to list',
+		displayOptions: showFor('profile', ['getAll']),
+	},
+	{
+		displayName: 'Return All',
+		name: 'returnAll',
+		type: 'boolean',
+		default: false,
+		description: 'Whether to return all results or only up to a given limit',
+		displayOptions: showFor('profile', ['getAll']),
+	},
+	{
+		displayName: 'Limit',
+		name: 'limit',
+		type: 'number',
+		typeOptions: { minValue: 1 },
+		default: 50,
+		description: 'Max number of results to return',
+		displayOptions: {
+			show: { resource: ['profile'], operation: ['getAll'], returnAll: [false] },
+		},
+	},
 	{
 		displayName: 'Sort By',
 		name: 'sortBy',
@@ -441,7 +411,7 @@ export const peopleSearchFields: INodeProperties[] = [
 			{ name: 'Score', value: 'score', description: 'Best fit first' },
 		],
 		default: 'score',
-		displayOptions: showFor(['listProfiles']),
+		displayOptions: showFor('profile', ['getAll']),
 	},
 	{
 		displayName: 'Filters',
@@ -449,7 +419,7 @@ export const peopleSearchFields: INodeProperties[] = [
 		type: 'collection',
 		placeholder: 'Add Filter',
 		default: {},
-		displayOptions: showFor(['listProfiles']),
+		displayOptions: showFor('profile', ['getAll']),
 		options: [
 			{
 				displayName: 'Location',
@@ -517,4 +487,13 @@ export const peopleSearchFields: INodeProperties[] = [
 			},
 		],
 	},
+];
+
+export const peopleSearchProperties: INodeProperties[] = [
+	resourceProperty,
+	searchOperations,
+	profileOperations,
+	...searchStartFields,
+	...searchTaskFields,
+	...profileFields,
 ];

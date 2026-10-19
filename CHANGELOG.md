@@ -2,10 +2,10 @@
 
 ## 0.2.0
 
-- People Search resource for X, YouTube, LinkedIn and TikTok (`/desearch/people/*`): Start Search, Get Results, Get Task, Pause Task, Resume Task, Cancel Task, List Tasks and List Profiles.
-- Get Results can wait until a search finishes (Timeout, Poll Interval) and returns every page, one item per person. List Tasks and List Profiles support Return All and Limit; List Profiles has the result filters (has email, website or social links, audience, fit score, location, verified) and sorting.
-- People Search errors show the reason the API gives, for example not enough credits or why a task cannot be paused.
-- The AI Search, Web Search and X Search operations are now under a Search resource. It is the default, so existing workflows keep working unchanged.
+- New **Desearch People Search** node for X, YouTube, LinkedIn and TikTok (`/desearch/people/*`), with the same Desearch API credential. Search resource: Start, Get Results, Get, Get Many, Pause, Resume, Cancel. Profile resource: Get Many.
+- Get Results can wait until a search finishes (Timeout, Poll Interval) and returns every page, one item per person. Get Many supports Return All and Limit; Profile > Get Many has the result filters (has email, website or social links, audience, fit score, location, verified) and sorting.
+- People Search errors show the reason the API gives, for example not enough credits or why a search cannot be paused.
+- The Desearch node (AI Search, Web Search, X Search) is unchanged.
 - Unit tests with Vitest (`npm test`), run in CI.
 
 ## 0.1.1

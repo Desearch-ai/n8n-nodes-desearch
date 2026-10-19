@@ -1,0 +1,10 @@
+{
+	"node": "n8n-nodes-desearch.desearchPeopleSearch",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Sales", "Marketing & Content"],
+	"resources": {
+		"credentialDocumentation": [{ "url": "https://github.com/Desearch-ai/n8n-nodes-desearch?tab=readme-ov-file#credentials" }],
+		"primaryDocumentation": [{ "url": "https://www.desearch.ai/docs/guide/apis/people-search" }]
+	}
+}
