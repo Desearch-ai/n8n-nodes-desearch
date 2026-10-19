@@ -57,7 +57,13 @@ jobs:
         run: |
           npm install -g npm@^11.5.1
           node --version
-          npm --version
+          NPM_VERSION="$(npm --version)"
+          echo "npm ${NPM_VERSION}"
+          LOWEST="$(printf '%s\n' '11.5.1' "${NPM_VERSION}" | sort -V | head -n1)"
+          if [ "${LOWEST}" != '11.5.1' ]; then
+            echo "npm ${NPM_VERSION} is below 11.5.1"
+            exit 1
+          fi
 
       - name: Check tag matches package.json version
         env:
@@ -83,6 +89,10 @@ jobs:
 
       - name: Publish with provenance
         # RELEASE_MODE lets the n8n-node prerelease guard (prepublishOnly) allow a direct npm publish.
+        # Clear registry auth so an empty NODE_AUTH_TOKEN/NPM_TOKEN cannot mask the OIDC exchange.
         env:
           RELEASE_MODE: 'true'
-        run: npm publish --provenance --access public --loglevel verbose
+        run: |
+          unset NODE_AUTH_TOKEN
+          unset NPM_TOKEN
+          npm publish --provenance --access public
