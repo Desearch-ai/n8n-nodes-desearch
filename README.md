@@ -1,6 +1,6 @@
 # n8n-nodes-desearch
 
-AI search, X search and web search for AI agents.
+AI search, X search, web search and people search for AI agents.
 
 This is an n8n community node for the [Desearch API](https://desearch.ai). It calls the Desearch REST API directly and has no runtime dependencies.
 
@@ -10,9 +10,28 @@ Follow the [community nodes installation guide](https://docs.n8n.io/integrations
 
 ## Operations
 
+### Search
+
 - **AI Search**: search web, X, arXiv, Wikipedia, Hacker News and Reddit and get links with a summary (`POST /desearch/ai/search`).
 - **Web Search**: web results for a query (`GET /web`).
 - **X Search**: posts on X for a query (`GET /twitter`).
+
+### People Search
+
+Find people on X, YouTube, LinkedIn and TikTok by describing them in plain language, for example "Indie hackers building in public who share their MRR". You get profiles, not posts: each person with a fit score, the reasons they matched, their audience, links and any public contact details. See the [People Search guide](https://www.desearch.ai/docs/guide/apis/people-search).
+
+- **Start Search**: start a search on one platform (`POST /desearch/people/search/{platform}`). Set how many people to find (5 to 200) and, optionally, platform filters (followers or subscribers, countries, keywords, verified accounts, public contact), a minimum fit score and handles to leave out. The search runs in the background, usually for 1 to 5 minutes, and the node returns its task.
+- **Get Results**: the people a search found, one item per person (`GET /desearch/people/tasks/{task_id}/results`). With **Wait for Completion** on (the default), the node checks the task every **Poll Interval** seconds until the search finishes, then returns everyone it found. It fails if the search is still running after **Timeout** (the search keeps running; run Get Results again later), failed, or is paused. Turn **Return All** off to get at most **Limit** people.
+- **Get Task**: status, progress and cost of a search (`GET /desearch/people/tasks/{task_id}`).
+- **Pause Task**, **Resume Task**, **Cancel Task**: control a running search (`POST /desearch/people/tasks/{task_id}/pause`, `/resume`, `/cancel`).
+- **List Tasks**: your searches, newest first, filtered by platform and status (`GET /desearch/people/tasks`).
+- **List Profiles**: everyone your searches on one platform found, one item per person (`GET /desearch/people/profiles`). Filter by what people have (email, website, X, LinkedIn, Instagram, YouTube, TikTok), audience, fit score, location, verified accounts (X and TikTok) or text in the name, handle or bio, and sort by score, most recent or audience.
+
+A typical workflow is **Start Search**, then **Get Results** with Task ID `{{ $json.task_id }}`. Get Results waits and outputs one item per person for the next node.
+
+**Billing.** Only Start Search is billed. It reserves `count` people at the platform's price and, when the search ends, charges only for the people it delivered; a search that finds no one is free. Every other People Search operation is free. If you turn on **Retry On Fail** for Start Search, set an **Idempotency Key** that is unique for each search, for example `{{ $execution.id }}-{{ $itemIndex }}`: a retry with the same key returns the first search instead of starting and charging a new one.
+
+If your n8n instance limits how long an execution may run, keep the Get Results **Timeout** below that limit.
 
 The node can also be used as a tool by AI Agent nodes.
 

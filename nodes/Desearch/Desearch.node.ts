@@ -1,5 +1,7 @@
 import { NodeConnectionTypes, type INodeType, type INodeTypeDescription } from 'n8n-workflow';
 
+import { peopleSearchFields, peopleSearchOperations } from './PeopleSearchDescription';
+
 export class Desearch implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Desearch',
@@ -8,7 +10,7 @@ export class Desearch implements INodeType {
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["operation"]}}',
-		description: 'AI search, X search and web search for AI agents',
+		description: 'AI search, X search, web search and people search for AI agents',
 		defaults: {
 			name: 'Desearch',
 		},
@@ -25,10 +27,30 @@ export class Desearch implements INodeType {
 		},
 		properties: [
 			{
+				displayName: 'Resource',
+				name: 'resource',
+				type: 'options',
+				noDataExpression: true,
+				options: [
+					{
+						name: 'People Search',
+						value: 'peopleSearch',
+						description: 'Find people on X, YouTube, LinkedIn and TikTok',
+					},
+					{
+						name: 'Search',
+						value: 'search',
+						description: 'AI search, web search and X search',
+					},
+				],
+				default: 'search',
+			},
+			{
 				displayName: 'Operation',
 				name: 'operation',
 				type: 'options',
 				noDataExpression: true,
+				displayOptions: { show: { resource: ['search'] } },
 				options: [
 					{
 						name: 'AI Search',
@@ -85,6 +107,7 @@ export class Desearch implements INodeType {
 				],
 				default: 'aiSearch',
 			},
+			...peopleSearchOperations,
 			{
 				displayName: 'Prompt',
 				name: 'prompt',
@@ -175,6 +198,7 @@ export class Desearch implements INodeType {
 				default: 'Top',
 				displayOptions: { show: { operation: ['xSearch'] } },
 			},
+			...peopleSearchFields,
 		],
 	};
 }
