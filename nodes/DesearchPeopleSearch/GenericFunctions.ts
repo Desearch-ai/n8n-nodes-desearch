@@ -1,17 +1,23 @@
 import {
-	NodeApiError,
 	NodeOperationError,
 	sleep,
+	type IBinaryKeyData,
 	type IDataObject,
 	type IExecuteFunctions,
 	type IHttpRequestMethods,
-	type IHttpRequestOptions,
-	type IN8nHttpFullResponse,
 	type INode,
-	type JsonObject,
+	type INodeExecutionData,
 } from 'n8n-workflow';
 
-export const DESEARCH_API_URL = 'https://api.desearch.ai';
+import { desearchApiRequest, isSet, responseHeader, splitList } from '../shared/transport';
+
+export {
+	DESEARCH_API_URL,
+	apiError,
+	apiErrorDetail,
+	asNodeError,
+	splitList,
+} from '../shared/transport';
 
 export type PeoplePlatform = 'x' | 'youtube' | 'linkedin' | 'tiktok';
 
@@ -70,19 +76,6 @@ export const MAX_PAGE_SIZE = {
 	profiles: 200,
 } as const;
 
-/** Splits a comma or newline separated string (or an array) into trimmed, non-empty strings. */
-export function splitList(value: unknown): string[] {
-	if (value === undefined || value === null) {
-		return [];
-	}
-	const parts: unknown[] = Array.isArray(value) ? value : String(value).split(/[,\n]/);
-	return parts.map((part) => String(part).trim()).filter((part) => part !== '');
-}
-
-function isSet(value: unknown): boolean {
-	return value !== undefined && value !== null && value !== '';
-}
-
 function numberOrUndefined(value: unknown): number | undefined {
 	if (!isSet(value)) {
 		return undefined;
@@ -103,62 +96,7 @@ export function taskPath(taskId: string, suffix = ''): string {
 }
 
 /**
- * The reason the API gives for an error. The API puts it in `detail`: a string,
- * or a list of validation errors (`[{ loc, msg }]`).
- */
-export function apiErrorDetail(body: unknown): string | undefined {
-	if (typeof body === 'string') {
-		// Plain-text bodies only: an HTML error page (for example from a proxy) says nothing useful.
-		const text = body.trim();
-		return text === '' || text.startsWith('<') ? undefined : text.slice(0, 500);
-	}
-	const detail = (body as IDataObject | undefined)?.detail;
-	if (typeof detail === 'string') {
-		return detail;
-	}
-	if (Array.isArray(detail)) {
-		const messages = detail.map((entry) => {
-			const { loc, msg } = (entry ?? {}) as IDataObject;
-			const field = Array.isArray(loc) ? loc.filter((part) => part !== 'body').join('.') : '';
-			const text = typeof msg === 'string' ? msg : JSON.stringify(entry);
-			return field === '' ? text : `${field}: ${text}`;
-		});
-		return messages.length > 0 ? messages.join('; ') : undefined;
-	}
-	return undefined;
-}
-
-/** A node error for an HTTP error response, with the API's reason as its description. */
-export function apiError(
-	node: INode,
-	statusCode: number,
-	body: unknown,
-	itemIndex: number,
-): NodeApiError {
-	const errorBody = (
-		body !== null && typeof body === 'object' ? body : { detail: body }
-	) as JsonObject;
-	return new NodeApiError(node, errorBody, {
-		httpCode: String(statusCode),
-		description: apiErrorDetail(body),
-		itemIndex,
-	});
-}
-
-/** Keeps errors n8n already understands; wraps anything else in a NodeOperationError. */
-export function asNodeError(
-	node: INode,
-	error: unknown,
-	itemIndex: number,
-): NodeApiError | NodeOperationError {
-	if (error instanceof NodeApiError || error instanceof NodeOperationError) {
-		return error;
-	}
-	return new NodeOperationError(node, error as Error, { itemIndex });
-}
-
-/**
- * Calls the People Search API with the node's Desearch credential.
+ * Calls the People Search API with the node's Desearch credential and returns the JSON body.
  * HTTP errors fail the item with the reason the API gives (for example
  * "Not enough credits" or why a task cannot be paused) instead of a generic message.
  */
@@ -167,40 +105,9 @@ export async function peopleApiRequest(
 	itemIndex: number,
 	method: IHttpRequestMethods,
 	path: string,
-	{ qs, body, headers }: { qs?: IDataObject; body?: IDataObject; headers?: IDataObject } = {},
+	request: { qs?: IDataObject; body?: IDataObject; headers?: IDataObject } = {},
 ): Promise<IDataObject> {
-	const options: IHttpRequestOptions = {
-		method,
-		url: `${DESEARCH_API_URL}${path}`,
-		headers: {
-			Accept: 'application/json',
-			...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-			...headers,
-		},
-		json: true,
-		ignoreHttpStatusErrors: true,
-		returnFullResponse: true,
-	};
-	if (qs !== undefined) {
-		options.qs = Object.fromEntries(Object.entries(qs).filter(([, value]) => isSet(value)));
-	}
-	if (body !== undefined) {
-		options.body = body;
-	}
-
-	let response: IN8nHttpFullResponse;
-	try {
-		response = (await this.helpers.httpRequestWithAuthentication.call(
-			this,
-			'desearchApi',
-			options,
-		)) as IN8nHttpFullResponse;
-	} catch (error) {
-		throw new NodeApiError(this.getNode(), error as JsonObject, { itemIndex });
-	}
-	if (response.statusCode >= 400) {
-		throw apiError(this.getNode(), response.statusCode, response.body, itemIndex);
-	}
+	const response = await desearchApiRequest.call(this, itemIndex, method, path, request);
 	return (response.body ?? {}) as IDataObject;
 }
 
@@ -282,7 +189,7 @@ export function buildListTasksQuery(filters: IDataObject): IDataObject {
 	return qs;
 }
 
-/** Query string of `GET /desearch/people/profiles`. */
+/** Query string of `GET /desearch/people/profiles` (and of the profiles export). */
 export function buildListProfilesQuery(
 	platform: string,
 	sort: string,
@@ -293,6 +200,19 @@ export function buildListProfilesQuery(
 	if (searchText !== '') {
 		qs.q = searchText;
 	}
+	Object.assign(qs, buildResultFiltersQuery(filters));
+	if (filters.verifiedOnly === true && VERIFIED_PLATFORMS.has(platform)) {
+		qs.verified = true;
+	}
+	return qs;
+}
+
+/**
+ * Query string of the result filters every people list and export accepts:
+ * `has`, `min_audience`, `max_audience`, `min_score` and `location`.
+ */
+export function buildResultFiltersQuery(filters: IDataObject): IDataObject {
+	const qs: IDataObject = {};
 	const has = splitList(filters.has);
 	if (has.length > 0) {
 		qs.has = has.join(',');
@@ -312,10 +232,85 @@ export function buildListProfilesQuery(
 	if (location !== '') {
 		qs.location = location;
 	}
-	if (filters.verifiedOnly === true && VERIFIED_PLATFORMS.has(platform)) {
+	return qs;
+}
+
+/**
+ * Query string of `GET /desearch/people/tasks/{task_id}/export`: the format and the
+ * result filters. `verified` is sent as set; the API rejects it for a YouTube or
+ * LinkedIn search.
+ */
+export function buildExportResultsQuery(format: string, filters: IDataObject): IDataObject {
+	const qs: IDataObject = { format, ...buildResultFiltersQuery(filters) };
+	if (filters.verifiedOnly === true) {
 		qs.verified = true;
 	}
 	return qs;
+}
+
+/** Export file formats: the API's `format` value -> MIME type and file extension. */
+export const EXPORT_FORMATS: Record<string, { mimeType: string; extension: string }> = {
+	csv: { mimeType: 'text/csv', extension: 'csv' },
+	jsonl: { mimeType: 'application/x-ndjson', extension: 'jsonl' },
+};
+
+/** The file name in a `Content-Disposition: attachment; filename="..."` header. */
+export function attachmentFileName(contentDisposition: string | undefined): string | undefined {
+	const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(contentDisposition ?? '');
+	const name = match?.[1]?.trim();
+	// Keep only the base name: a file name never carries a path.
+	return name ? name.split(/[\\/]/).pop() : undefined;
+}
+
+/**
+ * Downloads a People Search export (CSV or JSON Lines) and returns it as an n8n
+ * binary item. The file is named as the API names it, or `fallbackName` + extension.
+ */
+export async function exportFile(
+	this: IExecuteFunctions,
+	itemIndex: number,
+	path: string,
+	qs: IDataObject,
+	fallbackName: string,
+	json: IDataObject,
+): Promise<INodeExecutionData> {
+	const format = String(qs.format);
+	const fileFormat = EXPORT_FORMATS[format];
+	if (fileFormat === undefined) {
+		throw new NodeOperationError(this.getNode(), `Unknown export format "${format}"`, {
+			itemIndex,
+			description: 'Use csv or jsonl.',
+		});
+	}
+	const response = await desearchApiRequest.call(this, itemIndex, 'GET', path, {
+		qs,
+		headers: { Accept: fileFormat.mimeType },
+		encoding: 'arraybuffer',
+	});
+
+	const { body } = response;
+	let data: Buffer;
+	if (Buffer.isBuffer(body)) {
+		data = body;
+	} else if (body instanceof ArrayBuffer) {
+		data = Buffer.from(body);
+	} else {
+		data = Buffer.from(typeof body === 'string' ? body : '', 'utf8');
+	}
+	const fileName =
+		attachmentFileName(responseHeader(response, 'content-disposition')) ??
+		`${fallbackName}.${fileFormat.extension}`;
+	const binaryPropertyName = String(
+		this.getNodeParameter('binaryPropertyName', itemIndex, 'data'),
+	).trim();
+	const binary: IBinaryKeyData = {
+		[binaryPropertyName || 'data']: await this.helpers.prepareBinaryData(
+			data,
+			fileName,
+			fileFormat.mimeType,
+		),
+	};
+	return { json: { ...json, format, fileName, fileSize: data.length }, binary };
 }
 
 /**

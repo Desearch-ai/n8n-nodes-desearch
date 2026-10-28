@@ -48,6 +48,12 @@ export const searchOperations: INodeProperties = {
 			description: 'Stop a search. You pay only for the people it delivered.',
 		},
 		{
+			name: 'Export Results',
+			value: 'exportResults',
+			action: 'Export the people a search found',
+			description: 'Download the people a search found as a CSV or JSON Lines file',
+		},
+		{
 			name: 'Get',
 			value: 'get',
 			action: 'Get a search',
@@ -94,6 +100,13 @@ export const profileOperations: INodeProperties = {
 	noDataExpression: true,
 	displayOptions: { show: { resource: ['profile'] } },
 	options: [
+		{
+			name: 'Export',
+			value: 'export',
+			action: 'Export profiles',
+			description:
+				'Download everyone your searches on one platform found as a CSV or JSON Lines file (up to 10,000 people)',
+		},
 		{
 			name: 'Get Many',
 			value: 'getAll',
@@ -271,7 +284,14 @@ const searchTaskFields: INodeProperties[] = [
 		default: '',
 		placeholder: 'e.g. 5b33f3ee-168b-4780-9c8e-63a626781872',
 		description: 'The task_id that Start returned',
-		displayOptions: showFor('search', ['get', 'getResults', 'pause', 'resume', 'cancel']),
+		displayOptions: showFor('search', [
+			'get',
+			'getResults',
+			'exportResults',
+			'pause',
+			'resume',
+			'cancel',
+		]),
 	},
 	{
 		displayName: 'Wait for Completion',
@@ -280,7 +300,7 @@ const searchTaskFields: INodeProperties[] = [
 		default: true,
 		description:
 			'Whether to wait until the search finishes before returning people. Searches usually take 1 to 5 minutes. When off, returns the people found so far.',
-		displayOptions: showFor('search', ['getResults']),
+		displayOptions: showFor('search', ['getResults', 'exportResults']),
 	},
 	{
 		displayName: 'Timeout (Seconds)',
@@ -291,7 +311,11 @@ const searchTaskFields: INodeProperties[] = [
 		description:
 			'How long to wait. If the search is still running then, the node fails with its status and the search keeps running.',
 		displayOptions: {
-			show: { resource: ['search'], operation: ['getResults'], waitForCompletion: [true] },
+			show: {
+				resource: ['search'],
+				operation: ['getResults', 'exportResults'],
+				waitForCompletion: [true],
+			},
 		},
 	},
 	{
@@ -302,7 +326,11 @@ const searchTaskFields: INodeProperties[] = [
 		default: 15,
 		description: 'How often to check whether the search has finished',
 		displayOptions: {
-			show: { resource: ['search'], operation: ['getResults'], waitForCompletion: [true] },
+			show: {
+				resource: ['search'],
+				operation: ['getResults', 'exportResults'],
+				waitForCompletion: [true],
+			},
 		},
 	},
 	{
@@ -371,6 +399,58 @@ const searchTaskFields: INodeProperties[] = [
 	},
 ];
 
+/** Result filters shared by Profile > Get Many and Export and by Search > Export Results (sorted by name). */
+const resultFilterOptions: INodeProperties[] = [
+	{
+		displayName: 'Location',
+		name: 'location',
+		type: 'string',
+		default: '',
+		placeholder: 'e.g. united states',
+		description: 'Text in the location',
+	},
+	{
+		displayName: 'Max Audience',
+		name: 'maxAudience',
+		type: 'number',
+		typeOptions: { minValue: 0 },
+		default: 100000,
+		description: 'Maximum followers (subscribers on YouTube)',
+	},
+	{
+		displayName: 'Min Audience',
+		name: 'minAudience',
+		type: 'number',
+		typeOptions: { minValue: 0 },
+		default: 0,
+		description: 'Minimum followers (subscribers on YouTube)',
+	},
+	{
+		displayName: 'Min Score',
+		name: 'minScore',
+		type: 'number',
+		typeOptions: { minValue: 0, maxValue: 100 },
+		default: 60,
+		description: 'Minimum fit score (0 to 100)',
+	},
+	{
+		displayName: 'Must Have',
+		name: 'has',
+		type: 'multiOptions',
+		options: [
+			{ name: 'Email', value: 'email' },
+			{ name: 'Instagram', value: 'instagram' },
+			{ name: 'LinkedIn', value: 'linkedin' },
+			{ name: 'TikTok', value: 'tiktok' },
+			{ name: 'Website', value: 'website' },
+			{ name: 'X', value: 'x' },
+			{ name: 'YouTube', value: 'youtube' },
+		],
+		default: [],
+		description: 'Only people who have every one of these',
+	},
+];
+
 const profileFields: INodeProperties[] = [
 	{
 		displayName: 'Platform',
@@ -380,7 +460,7 @@ const profileFields: INodeProperties[] = [
 		default: 'x',
 		required: true,
 		description: 'Whose people to list',
-		displayOptions: showFor('profile', ['getAll']),
+		displayOptions: showFor('profile', ['getAll', 'export']),
 	},
 	{
 		displayName: 'Return All',
@@ -411,7 +491,7 @@ const profileFields: INodeProperties[] = [
 			{ name: 'Score', value: 'score', description: 'Best fit first' },
 		],
 		default: 'score',
-		displayOptions: showFor('profile', ['getAll']),
+		displayOptions: showFor('profile', ['getAll', 'export']),
 	},
 	{
 		displayName: 'Filters',
@@ -419,56 +499,9 @@ const profileFields: INodeProperties[] = [
 		type: 'collection',
 		placeholder: 'Add Filter',
 		default: {},
-		displayOptions: showFor('profile', ['getAll']),
+		displayOptions: showFor('profile', ['getAll', 'export']),
 		options: [
-			{
-				displayName: 'Location',
-				name: 'location',
-				type: 'string',
-				default: '',
-				placeholder: 'e.g. united states',
-				description: 'Text in the location',
-			},
-			{
-				displayName: 'Max Audience',
-				name: 'maxAudience',
-				type: 'number',
-				typeOptions: { minValue: 0 },
-				default: 100000,
-				description: 'Maximum followers (subscribers on YouTube)',
-			},
-			{
-				displayName: 'Min Audience',
-				name: 'minAudience',
-				type: 'number',
-				typeOptions: { minValue: 0 },
-				default: 0,
-				description: 'Minimum followers (subscribers on YouTube)',
-			},
-			{
-				displayName: 'Min Score',
-				name: 'minScore',
-				type: 'number',
-				typeOptions: { minValue: 0, maxValue: 100 },
-				default: 60,
-				description: 'Minimum fit score (0 to 100)',
-			},
-			{
-				displayName: 'Must Have',
-				name: 'has',
-				type: 'multiOptions',
-				options: [
-					{ name: 'Email', value: 'email' },
-					{ name: 'Instagram', value: 'instagram' },
-					{ name: 'LinkedIn', value: 'linkedin' },
-					{ name: 'TikTok', value: 'tiktok' },
-					{ name: 'Website', value: 'website' },
-					{ name: 'X', value: 'x' },
-					{ name: 'YouTube', value: 'youtube' },
-				],
-				default: [],
-				description: 'Only people who have every one of these',
-			},
+			...resultFilterOptions,
 			{
 				displayName: 'Search Text',
 				name: 'searchText',
@@ -489,6 +522,51 @@ const profileFields: INodeProperties[] = [
 	},
 ];
 
+const exportFields: INodeProperties[] = [
+	{
+		displayName: 'Filters',
+		name: 'resultFilters',
+		type: 'collection',
+		placeholder: 'Add Filter',
+		default: {},
+		displayOptions: showFor('search', ['exportResults']),
+		options: [
+			...resultFilterOptions,
+			{
+				displayName: 'Verified Only',
+				name: 'verifiedOnly',
+				type: 'boolean',
+				default: false,
+				description: 'Whether to export only verified accounts. X and TikTok searches only.',
+			},
+		],
+	},
+	{
+		displayName: 'File Format',
+		name: 'format',
+		type: 'options',
+		options: [
+			{ name: 'CSV', value: 'csv', description: 'One row per person' },
+			{ name: 'JSON Lines', value: 'jsonl', description: 'One JSON object per line, per person' },
+		],
+		default: 'csv',
+		displayOptions: {
+			show: { resource: ['search', 'profile'], operation: ['exportResults', 'export'] },
+		},
+	},
+	{
+		displayName: 'Put Output File in Field',
+		name: 'binaryPropertyName',
+		type: 'string',
+		required: true,
+		default: 'data',
+		hint: 'The name of the output binary field to put the file in',
+		displayOptions: {
+			show: { resource: ['search', 'profile'], operation: ['exportResults', 'export'] },
+		},
+	},
+];
+
 export const peopleSearchProperties: INodeProperties[] = [
 	resourceProperty,
 	searchOperations,
@@ -496,4 +574,5 @@ export const peopleSearchProperties: INodeProperties[] = [
 	...searchStartFields,
 	...searchTaskFields,
 	...profileFields,
+	...exportFields,
 ];

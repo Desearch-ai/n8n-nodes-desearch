@@ -1,16 +1,20 @@
 import { NodeApiError, NodeOperationError, type IDataObject } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 
+import { apiDate, compact, listPage, toItems } from '../nodes/Desearch/GenericFunctions';
 import {
 	apiError,
 	apiErrorDetail,
+	attachmentFileName,
+	buildExportResultsQuery,
 	buildListProfilesQuery,
 	buildListTasksQuery,
 	buildStartSearchRequest,
 	splitList,
 	taskPath,
 } from '../nodes/DesearchPeopleSearch/GenericFunctions';
-import { node } from './helpers';
+import { responseHeader } from '../nodes/shared/transport';
+import { node, response } from './helpers';
 
 describe('splitList', () => {
 	it('splits commas and new lines, trims and drops empty entries', () => {
@@ -212,5 +216,98 @@ describe('API errors', () => {
 		expect(apiErrorDetail('')).toBeUndefined();
 		expect(apiErrorDetail({ error: 'x' })).toBeUndefined();
 		expect(apiErrorDetail(undefined)).toBeUndefined();
+	});
+});
+
+describe('buildExportResultsQuery', () => {
+	it('sends the format and the result filters, verified as set', () => {
+		expect(
+			buildExportResultsQuery('jsonl', {
+				has: ['email', 'x'],
+				minAudience: 0,
+				maxAudience: 1000,
+				minScore: 80,
+				location: ' berlin ',
+				verifiedOnly: true,
+			}),
+		).toEqual({
+			format: 'jsonl',
+			has: 'email,x',
+			min_audience: 0,
+			max_audience: 1000,
+			min_score: 80,
+			location: 'berlin',
+			verified: true,
+		});
+		expect(buildExportResultsQuery('csv', { verifiedOnly: false })).toEqual({ format: 'csv' });
+	});
+});
+
+describe('attachmentFileName', () => {
+	it('reads the file name of an attachment', () => {
+		expect(attachmentFileName('attachment; filename="people-search-x-profiles.csv"')).toBe(
+			'people-search-x-profiles.csv',
+		);
+		expect(attachmentFileName('attachment; filename=results.jsonl')).toBe('results.jsonl');
+		expect(attachmentFileName("attachment; filename*=UTF-8''r%C3%A9sum%C3%A9.csv")).toBe(
+			'r%C3%A9sum%C3%A9.csv',
+		);
+	});
+
+	it('keeps only the base name and ignores headers without one', () => {
+		expect(attachmentFileName('attachment; filename="../../etc/passwd"')).toBe('passwd');
+		expect(attachmentFileName('inline')).toBeUndefined();
+		expect(attachmentFileName(undefined)).toBeUndefined();
+	});
+});
+
+describe('Desearch node helpers', () => {
+	it('toItems: one item per array entry, one item for an object, none for nothing', () => {
+		expect(toItems([{ id: 1 }, { id: 2 }])).toEqual([{ id: 1 }, { id: 2 }]);
+		expect(toItems(['a'])).toEqual([{ value: 'a' }]);
+		expect(toItems({ a: 1 })).toEqual([{ a: 1 }]);
+		expect(toItems('text')).toEqual([{ value: 'text' }]);
+		expect(toItems(undefined)).toEqual([]);
+		expect(toItems([])).toEqual([]);
+	});
+
+	it('listPage: results and the next cursor header, null when absent', () => {
+		expect(listPage(response([{ id: 1 }], 200, { 'x-desearch-next-cursor': 'abc' }))).toEqual({
+			results: [{ id: 1 }],
+			nextCursor: 'abc',
+		});
+		expect(listPage(response([], 200, { 'x-desearch-next-cursor': '' }))).toEqual({
+			results: [],
+			nextCursor: null,
+		});
+		expect(listPage(response({}))).toEqual({ results: [], nextCursor: null });
+		expect(listPage(response({ id: 1 }))).toEqual({ results: [{ id: 1 }], nextCursor: null });
+	});
+
+	it('responseHeader: any case, first value of a list', () => {
+		const reply = response({}, 200, { 'Content-Disposition': 'a', 'set-cookie': ['b', 'c'] });
+		expect(responseHeader(reply, 'content-disposition')).toBe('a');
+		expect(responseHeader(reply, 'Set-Cookie')).toBe('b');
+		expect(responseHeader(reply, 'x-missing')).toBeUndefined();
+	});
+
+	it('apiDate: UTC date-times, or days, from dates with or without a time zone', () => {
+		expect(apiDate(node, 0, '2025-05-01T00:00:00', 'Start Date')).toBe('2025-05-01T00:00:00Z');
+		expect(apiDate(node, 0, '2025-05-01T08:15', 'Start Date')).toBe('2025-05-01T08:15:00Z');
+		expect(apiDate(node, 0, '2025-05-01T02:00:00.000+02:00', 'Start Date')).toBe(
+			'2025-05-01T00:00:00Z',
+		);
+		expect(apiDate(node, 0, '2025-05-01', 'Start Date')).toBe('2025-05-01T00:00:00Z');
+		expect(apiDate(node, 0, '2026-09-17T23:30:00', 'End Date', true)).toBe('2026-09-17');
+		expect(apiDate(node, 0, '', 'Start Date')).toBeUndefined();
+		expect(() => apiDate(node, 3, 'soon', 'End Date')).toThrow('End Date is not a valid date');
+	});
+
+	it('compact drops unset values but keeps false and 0', () => {
+		expect(compact({ a: undefined, b: null, c: '', d: false, e: 0, f: 'x' })).toEqual({
+			d: false,
+			e: 0,
+			f: 'x',
+		});
 	});
 });
