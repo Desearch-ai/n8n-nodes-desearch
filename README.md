@@ -1,6 +1,6 @@
 # n8n-nodes-desearch
 
-AI search, X search, web search and people search for AI agents.
+AI search, X search, web search, people search and company search for AI agents.
 
 This is an n8n community node for the [Desearch API](https://desearch.ai). It calls the Desearch REST API directly and has no runtime dependencies.
 
@@ -40,7 +40,30 @@ API errors show the reason the API gives, for example "Only queued or running se
 
 If your n8n instance limits how long an execution may run, keep the Get Results **Timeout** below that limit.
 
-Both nodes can also be used as tools by AI Agent nodes and use the same **Desearch API** credential.
+### Desearch Company Search
+
+Find companies by describing them in plain language, for example "Series A fintech startups in Berlin building payment infrastructure", or start from the domains you already have. Each company comes with its public emails, phones and social profiles, its leaders (CEO, founders, CTO and CFO by default) with their LinkedIn profiles and emails, and the page each contact came from. See the [Company Search guide](https://www.desearch.ai/docs/guide/apis/company-search).
+
+**Company Search** resource:
+
+- **Start**: start a search from a description (`POST /desearch/companies/search`). Set how many companies to deliver (5 to 200) and, optionally, countries, what every company must have (email, phone, company LinkedIn page, a leader, a leader with an email), a minimum fit score, domains to leave out, which leaders to find, whether to infer and check emails, and metadata labels. The task runs in the background and the node returns it.
+
+**Company Enrich** resource:
+
+- **Start**: collect the same data for 1 to 200 domains or URLs you already have, separated by commas or new lines (`POST /desearch/companies/enrich`). You get one company per domain, without a fit score. Same leader, email and metadata options as Company Search.
+
+Both resources also have:
+
+- **Get Results**: the companies a task delivered, one item per company (`GET /desearch/companies/tasks/{task_id}/results`). Companies arrive while the task runs and later stages (leaders, inferred emails, email checks) fill them in, so with **Wait for Completion** on (the default) the node checks the task every **Poll Interval** seconds until it finishes, then returns every company in its final version. It fails if the task is still running after **Timeout** (the task keeps running; get its results again later), failed, or is paused. Turn **Return All** off to get at most **Limit** companies.
+- **Get**: status, progress, cost, why the task stopped (`completion_reason`, `coverage_limited`) and `warnings` (`GET /desearch/companies/tasks/{task_id}`).
+- **Get Many**: your Company Search or Company Enrich tasks, newest first, filtered by status and metadata labels (`GET /desearch/companies/tasks?type=search|enrich`).
+- **Pause**, **Resume**, **Cancel**: control a running task (`POST /desearch/companies/tasks/{task_id}/pause`, `/resume`, `/cancel`).
+
+A typical workflow is **Company Search > Start**, then **Company Search > Get Results** with Task ID `{{ $json.task_id }}`. A People Search task ID does not work on this node, and a company task ID does not work on Desearch People Search.
+
+**Billing.** Only Start is billed. Company Search reserves `count` companies and Company Enrich one company per domain, at the route's per-company price ([prices](https://desearch.ai/pricing)). When the task ends you pay only for the companies it delivered, with a minimum of 2 (Company Search) or 1 (Company Enrich) when it delivers any; a task that delivers none is free, and a company left out by Min Score or Must Have is not billed. Every other operation is free. As with People Search, set an **Idempotency Key** when you turn on **Retry On Fail** for Start.
+
+All three nodes can also be used as tools by AI Agent nodes and use the same **Desearch API** credential.
 
 ## Credentials
 

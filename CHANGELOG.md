@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- New **Desearch Company Search** node (`/desearch/companies/*`), with the same Desearch API credential. **Company Search** resource finds companies from a plain-language description; **Company Enrich** resource collects the same data for 1 to 200 domains you send. Both have Start, Get Results, Get, Get Many, Pause, Resume and Cancel.
+- Start takes the leaders to find (roles), whether to infer and check emails, metadata labels and an Idempotency Key; Company Search also takes Count, countries, Must Have (email, phone, company LinkedIn page, leader, leader with email), Min Score and domains to exclude.
+- Get Results can wait until a task finishes, so every company comes back in its final version (Timeout, Poll Interval), and returns every page, one item per company. Get Many lists the resource's task type, filtered by status and metadata labels.
+- The Desearch and Desearch People Search nodes are unchanged.
+
 ## 0.2.0
 
 - New **Desearch People Search** node for X, YouTube, LinkedIn and TikTok (`/desearch/people/*`), with the same Desearch API credential. Search resource: Start, Get Results, Get, Get Many, Pause, Resume, Cancel. Profile resource: Get Many.
