@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-desearch",
-  "version": "0.2.0",
-  "description": "AI search, X search, web search and people search for AI agents.",
+  "version": "0.3.0",
+  "description": "AI search, X search, web search, people search and company search for AI agents.",
   "license": "MIT",
   "homepage": "https://github.com/Desearch-ai/n8n-nodes-desearch",
   "keywords": [
@@ -10,7 +10,8 @@
     "search",
     "x-search",
     "web-search",
-    "people-search"
+    "people-search",
+    "company-search"
   ],
   "author": {
     "name": "Desearch AI",
@@ -42,7 +43,8 @@
     ],
     "nodes": [
       "dist/nodes/Desearch/Desearch.node.js",
-      "dist/nodes/DesearchPeopleSearch/DesearchPeopleSearch.node.js"
+      "dist/nodes/DesearchPeopleSearch/DesearchPeopleSearch.node.js",
+      "dist/nodes/DesearchCompanySearch/DesearchCompanySearch.node.js"
     ]
   },
   "devDependencies": {

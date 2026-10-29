@@ -6,12 +6,15 @@ import {
 	type IN8nHttpFullResponse,
 	type INode,
 	type INodeParameters,
+	type INodeType,
 } from 'n8n-workflow';
 import { vi } from 'vitest';
 
+import { DesearchCompanySearch } from '../nodes/DesearchCompanySearch/DesearchCompanySearch.node';
 import { DesearchPeopleSearch } from '../nodes/DesearchPeopleSearch/DesearchPeopleSearch.node';
 
 export const peopleNode = new DesearchPeopleSearch();
+export const companyNode = new DesearchCompanySearch();
 
 export const node: INode = {
 	id: 'people-node',
@@ -23,8 +26,11 @@ export const node: INode = {
 };
 
 /** Node parameters with defaults filled in, the way n8n does when it loads a workflow. */
-export function withDefaults(parameters: INodeParameters): INodeParameters {
-	const { description } = peopleNode;
+export function withDefaults(
+	parameters: INodeParameters,
+	nodeType: INodeType = peopleNode,
+): INodeParameters {
+	const { description } = nodeType;
 	return (
 		NodeHelpers.getNodeParameters(
 			description.properties,
@@ -55,7 +61,8 @@ export type HttpHandler = (options: IHttpRequestOptions) => IN8nHttpFullResponse
 
 /**
  * A minimal IExecuteFunctions: one input item per entry of `items` (its node
- * parameters, defaults filled in), authenticated HTTP goes to `http` (no network).
+ * parameters, defaults filled in from `nodeType`, People Search by default),
+ * authenticated HTTP goes to `http` (no network).
  */
 export function createExecuteContext(
 	items: INodeParameters | INodeParameters[],
@@ -65,9 +72,17 @@ export function createExecuteContext(
 		},
 		continueOnFail = false,
 		cancelSignal,
-	}: { http?: HttpHandler; continueOnFail?: boolean; cancelSignal?: AbortSignal } = {},
+		nodeType = peopleNode,
+	}: {
+		http?: HttpHandler;
+		continueOnFail?: boolean;
+		cancelSignal?: AbortSignal;
+		nodeType?: INodeType;
+	} = {},
 ) {
-	const parameters = (Array.isArray(items) ? items : [items]).map(withDefaults);
+	const parameters = (Array.isArray(items) ? items : [items]).map((item) =>
+		withDefaults(item, nodeType),
+	);
 	const httpRequestWithAuthentication = vi.fn(
 		async (_credentialType: string, options: IHttpRequestOptions) => http(options),
 	);
