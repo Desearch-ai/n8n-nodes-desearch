@@ -1,4 +1,68 @@
-import { NodeConnectionTypes, type INodeType, type INodeTypeDescription } from 'n8n-workflow';
+import {
+	NodeConnectionTypes,
+	type IDataObject,
+	type IExecuteFunctions,
+	type INodeExecutionData,
+	type INodeProperties,
+	type INodeType,
+	type INodeTypeDescription,
+} from 'n8n-workflow';
+
+import { asNodeError } from '../shared/transport';
+import { runDesearchOperation } from './GenericFunctions';
+import { searchFields, searchOperations } from './descriptions/SearchDescription';
+import {
+	facebookOperations,
+	instagramOperations,
+	socialFields,
+	tiktokOperations,
+} from './descriptions/SocialDescription';
+import { webPageFields, webPageOperations } from './descriptions/WebPageDescription';
+import { xFields, xOperations } from './descriptions/XDescription';
+
+/**
+ * Workflows saved before 0.3.0 have no `resource`: the default, `search`, holds
+ * AI Search, Web Search and X Search with the parameters they had then.
+ */
+const resourceProperty: INodeProperties = {
+	displayName: 'Resource',
+	name: 'resource',
+	type: 'options',
+	noDataExpression: true,
+	options: [
+		{
+			name: 'Facebook',
+			value: 'facebook',
+			description: 'Public pages, posts and comments, and Meta Ad Library records',
+		},
+		{
+			name: 'Instagram',
+			value: 'instagram',
+			description: 'Public profiles, posts and comments',
+		},
+		{
+			name: 'Search',
+			value: 'search',
+			description: 'Search the web and X for a query or prompt',
+		},
+		{
+			name: 'TikTok',
+			value: 'tiktok',
+			description: 'Public videos, profiles and comments',
+		},
+		{
+			name: 'Web Page',
+			value: 'webPage',
+			description: 'The content of a public web page',
+		},
+		{
+			name: 'X',
+			value: 'x',
+			description: 'Posts, replies, users and trends on X',
+		},
+	],
+	default: 'search',
+};
 
 export class Desearch implements INodeType {
 	description: INodeTypeDescription = {
@@ -7,8 +71,8 @@ export class Desearch implements INodeType {
 		icon: { light: 'file:../../icons/desearch.svg', dark: 'file:../../icons/desearch.dark.svg' },
 		group: ['transform'],
 		version: 1,
-		subtitle: '={{$parameter["operation"]}}',
-		description: 'AI search, X search and web search for AI agents',
+		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
+		description: 'AI search, web search, X, TikTok, Facebook and Instagram data for AI agents',
 		defaults: {
 			name: 'Desearch',
 		},
@@ -16,165 +80,47 @@ export class Desearch implements INodeType {
 		inputs: [NodeConnectionTypes.Main],
 		outputs: [NodeConnectionTypes.Main],
 		credentials: [{ name: 'desearchApi', required: true }],
-		requestDefaults: {
-			baseURL: 'https://api.desearch.ai',
-			headers: {
-				Accept: 'application/json',
-				'Content-Type': 'application/json',
-			},
-		},
 		properties: [
-			{
-				displayName: 'Operation',
-				name: 'operation',
-				type: 'options',
-				noDataExpression: true,
-				options: [
-					{
-						name: 'AI Search',
-						value: 'aiSearch',
-						action: 'Run an AI search',
-						description: 'Search several sources and get links with a summary',
-						routing: {
-							request: {
-								method: 'POST',
-								url: '/desearch/ai/search',
-								body: {
-									prompt: '={{$parameter.prompt}}',
-									tools: '={{$parameter.tools}}',
-									date_filter: '={{$parameter.dateFilter || undefined}}',
-									result_type: '={{$parameter.resultType}}',
-									streaming: false,
-								},
-							},
-						},
-					},
-					{
-						name: 'Web Search',
-						value: 'webSearch',
-						action: 'Search the web',
-						description: 'Get web search results for a query',
-						routing: {
-							request: {
-								method: 'GET',
-								url: '/web',
-								qs: {
-									query: '={{$parameter.query}}',
-									start: '={{$parameter.start}}',
-								},
-							},
-						},
-					},
-					{
-						name: 'X Search',
-						value: 'xSearch',
-						action: 'Search x posts',
-						description: 'Search posts on X',
-						routing: {
-							request: {
-								method: 'GET',
-								url: '/twitter',
-								qs: {
-									query: '={{$parameter.query}}',
-									count: '={{$parameter.count}}',
-									sort: '={{$parameter.sort}}',
-								},
-							},
-						},
-					},
-				],
-				default: 'aiSearch',
-			},
-			{
-				displayName: 'Prompt',
-				name: 'prompt',
-				type: 'string',
-				required: true,
-				default: '',
-				placeholder: 'e.g. Bittensor subnet news',
-				description: 'What to search for',
-				displayOptions: { show: { operation: ['aiSearch'] } },
-			},
-			{
-				displayName: 'Sources',
-				name: 'tools',
-				type: 'multiOptions',
-				options: [
-					{ name: 'ArXiv', value: 'arxiv' },
-					{ name: 'Hacker News', value: 'hackernews' },
-					{ name: 'Reddit', value: 'reddit' },
-					{ name: 'Web', value: 'web' },
-					{ name: 'Wikipedia', value: 'wikipedia' },
-					{ name: 'X', value: 'twitter' },
-				],
-				default: ['web', 'twitter'],
-				description: 'Sources to search',
-				displayOptions: { show: { operation: ['aiSearch'] } },
-			},
-			{
-				displayName: 'Date Filter',
-				name: 'dateFilter',
-				type: 'options',
-				options: [
-					{ name: 'Any Time', value: '' },
-					{ name: 'Past 2 Days', value: 'PAST_2_DAYS' },
-					{ name: 'Past 24 Hours', value: 'PAST_24_HOURS' },
-					{ name: 'Past Month', value: 'PAST_MONTH' },
-					{ name: 'Past Week', value: 'PAST_WEEK' },
-					{ name: 'Past Year', value: 'PAST_YEAR' },
-				],
-				default: '',
-				displayOptions: { show: { operation: ['aiSearch'] } },
-			},
-			{
-				displayName: 'Result Type',
-				name: 'resultType',
-				type: 'options',
-				options: [
-					{ name: 'Links With Final Summary', value: 'LINKS_WITH_FINAL_SUMMARY' },
-					{ name: 'Only Links', value: 'ONLY_LINKS' },
-				],
-				default: 'LINKS_WITH_FINAL_SUMMARY',
-				displayOptions: { show: { operation: ['aiSearch'] } },
-			},
-			{
-				displayName: 'Query',
-				name: 'query',
-				type: 'string',
-				required: true,
-				default: '',
-				placeholder: 'e.g. Desearch',
-				displayOptions: { show: { operation: ['webSearch', 'xSearch'] } },
-			},
-			{
-				displayName: 'Start',
-				name: 'start',
-				type: 'number',
-				typeOptions: { minValue: 0 },
-				default: 0,
-				description: 'Result offset for paging',
-				displayOptions: { show: { operation: ['webSearch'] } },
-			},
-			{
-				displayName: 'Count',
-				name: 'count',
-				type: 'number',
-				typeOptions: { minValue: 1, maxValue: 100 },
-				default: 20,
-				description: 'Number of posts to return',
-				displayOptions: { show: { operation: ['xSearch'] } },
-			},
-			{
-				displayName: 'Sort',
-				name: 'sort',
-				type: 'options',
-				options: [
-					{ name: 'Top', value: 'Top' },
-					{ name: 'Latest', value: 'Latest' },
-				],
-				default: 'Top',
-				displayOptions: { show: { operation: ['xSearch'] } },
-			},
+			resourceProperty,
+			searchOperations,
+			webPageOperations,
+			xOperations,
+			tiktokOperations,
+			facebookOperations,
+			instagramOperations,
+			...searchFields,
+			...webPageFields,
+			...xFields,
+			...socialFields,
 		],
 	};
+
+	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		const items = this.getInputData();
+		const returnData: INodeExecutionData[] = [];
+
+		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+			try {
+				const resource = this.getNodeParameter('resource', itemIndex) as string;
+				const operation = this.getNodeParameter('operation', itemIndex) as string;
+				const results = await runDesearchOperation.call(this, resource, operation, itemIndex);
+				for (const json of results) {
+					returnData.push({ json, pairedItem: { item: itemIndex } });
+				}
+			} catch (error) {
+				const nodeError = asNodeError(this.getNode(), error, itemIndex);
+				if (this.continueOnFail()) {
+					const json: IDataObject = { error: nodeError.message };
+					if (nodeError.description) {
+						json.description = nodeError.description;
+					}
+					returnData.push({ json, pairedItem: { item: itemIndex } });
+					continue;
+				}
+				throw nodeError;
+			}
+		}
+
+		return [returnData];
+	}
 }

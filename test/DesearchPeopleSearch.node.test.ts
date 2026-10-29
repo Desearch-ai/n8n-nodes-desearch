@@ -432,3 +432,178 @@ describe('errors', () => {
 		]);
 	});
 });
+
+describe('Search > Export Results', () => {
+	const csv = 'handle,name,score\nalice,Alice,91\nbob,Bob,77\n';
+
+	it('waits for the search, then returns the CSV export as binary data', async () => {
+		const { context, requests, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'exportResults',
+				taskId: TASK_ID,
+				resultFilters: { has: ['email'], minScore: 70, verifiedOnly: true },
+			},
+			{
+				http: api({
+					[`GET ${TASK_PATH}`]: taskStatuses('running', 'completed'),
+					[`GET ${TASK_PATH}/export`]: () =>
+						response(Buffer.from(csv), 200, {
+							'content-type': 'text/csv; charset=utf-8',
+							'content-disposition': `attachment; filename="people-search-x-${TASK_ID}.csv"`,
+						}),
+				}),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(requests()).toEqual([
+			`GET ${TASK_PATH}`,
+			`GET ${TASK_PATH}`,
+			`GET ${TASK_PATH}/export?format=csv&has=email&min_score=70&verified=true`,
+		]);
+		expect(clock.sleeps).toEqual([15000]);
+		const exportRequest = httpRequestWithAuthentication.mock.calls[2][1];
+		expect(exportRequest).toMatchObject({
+			method: 'GET',
+			encoding: 'arraybuffer',
+			json: false,
+			headers: { Accept: 'text/csv' },
+		});
+		expect(exportRequest.body).toBeUndefined();
+		const fileName = `people-search-x-${TASK_ID}.csv`;
+		expect(output).toEqual([
+			{
+				json: { task_id: TASK_ID, format: 'csv', fileName, fileSize: csv.length },
+				binary: {
+					data: {
+						data: Buffer.from(csv).toString('base64'),
+						mimeType: 'text/csv',
+						fileName,
+						fileExtension: 'csv',
+						fileSize: String(csv.length),
+					},
+				},
+				pairedItem: { item: 0 },
+			},
+		]);
+	});
+
+	it('exports JSON Lines without waiting, into the chosen field, with a default file name', async () => {
+		const jsonl = '{"handle":"alice"}\n';
+		const { context, requests } = createExecuteContext(
+			{
+				operation: 'exportResults',
+				taskId: TASK_ID,
+				waitForCompletion: false,
+				format: 'jsonl',
+				binaryPropertyName: 'people',
+			},
+			{ http: () => response(Buffer.from(jsonl)) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(requests()).toEqual([`GET ${TASK_PATH}/export?format=jsonl`]);
+		expect(output[0].json).toEqual({
+			task_id: TASK_ID,
+			format: 'jsonl',
+			fileName: `people-search-${TASK_ID}.jsonl`,
+			fileSize: jsonl.length,
+		});
+		expect(output[0].binary?.people).toMatchObject({
+			mimeType: 'application/x-ndjson',
+			fileName: `people-search-${TASK_ID}.jsonl`,
+		});
+		expect(Buffer.from(output[0].binary?.people.data ?? '', 'base64').toString()).toBe(jsonl);
+	});
+
+	it('fails with the reason the API gives in a binary error body', async () => {
+		const { context } = createExecuteContext(
+			{ operation: 'exportResults', taskId: TASK_ID, waitForCompletion: false },
+			{
+				http: () =>
+					response(Buffer.from('{"detail":"Results expired 30 days after the search ended"}'), 410),
+			},
+		);
+
+		const error = await execute(context).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).httpCode).toBe('410');
+		expect((error as NodeApiError).description).toBe(
+			'Results expired 30 days after the search ended',
+		);
+	});
+});
+
+describe('Profile > Export', () => {
+	it('exports everyone for the platform, with the sort and the filters', async () => {
+		const csv = 'handle\nalice\n';
+		const { context, requests, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				resource: 'profile',
+				operation: 'export',
+				platform: 'youtube',
+				sortBy: 'recent',
+				profileFilters: {
+					searchText: ' fitness ',
+					has: ['email', 'instagram'],
+					maxAudience: 500000,
+					location: 'united states',
+					verifiedOnly: true,
+				},
+			},
+			{
+				http: () =>
+					response(Buffer.from(csv), 200, {
+						'Content-Disposition': 'attachment; filename="people-search-youtube-profiles.csv"',
+					}),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		// verified is left out: YouTube has no such filter.
+		expect(requests()).toEqual([
+			'GET /desearch/people/profiles/export?format=csv&platform=youtube&sort=recent&q=fitness&has=email%2Cinstagram&max_audience=500000&location=united+states',
+		]);
+		expect(httpRequestWithAuthentication.mock.calls[0][1]).toMatchObject({
+			encoding: 'arraybuffer',
+			headers: { Accept: 'text/csv' },
+		});
+		expect(output).toEqual([
+			{
+				json: {
+					platform: 'youtube',
+					format: 'csv',
+					fileName: 'people-search-youtube-profiles.csv',
+					fileSize: csv.length,
+				},
+				binary: {
+					data: expect.objectContaining({
+						data: Buffer.from(csv).toString('base64'),
+						mimeType: 'text/csv',
+						fileName: 'people-search-youtube-profiles.csv',
+					}),
+				},
+				pairedItem: { item: 0 },
+			},
+		]);
+	});
+
+	it('exports JSON Lines with the default sort', async () => {
+		const { context, requests } = createExecuteContext(
+			{ resource: 'profile', operation: 'export', platform: 'x', format: 'jsonl' },
+			{ http: () => response(Buffer.from('')) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(requests()).toEqual([
+			'GET /desearch/people/profiles/export?format=jsonl&platform=x&sort=score',
+		]);
+		expect(output[0].json.fileName).toBe('people-search-x-profiles.jsonl');
+		expect(output[0].binary?.data.mimeType).toBe('application/x-ndjson');
+	});
+});

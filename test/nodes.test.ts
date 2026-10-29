@@ -1,17 +1,18 @@
 import {
 	NodeHelpers,
+	type INodeParameters,
 	type INodeProperties,
 	type INodePropertyOptions,
 	type INodeTypeDescription,
 } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 
-import { Desearch } from '../nodes/Desearch/Desearch.node';
 import pkg from '../package.json';
+import { SOCIAL_ROUTES } from '../nodes/Desearch/GenericFunctions';
 import { PEOPLE_SEARCH_FILTERS } from '../nodes/DesearchPeopleSearch/GenericFunctions';
-import { peopleNode, withDefaults } from './helpers';
+import { nodeParameters, peopleNode, searchNode, withDefaults } from './helpers';
 
-const searchNode = new Desearch();
+const withSearchDefaults = (parameters: INodeParameters) => nodeParameters(searchNode, parameters);
 
 /** Paths of every function inside a value, e.g. ["properties[0].routing.output.postReceive[0]"]. */
 function functionPaths(value: unknown, path = 'description'): string[] {
@@ -54,59 +55,123 @@ describe('package registration', () => {
 	});
 });
 
-describe('Desearch node (AI, web and X search)', () => {
-	const operations = searchNode.description.properties.find((p) => p.name === 'operation')
-		?.options as INodePropertyOptions[];
+describe('Desearch node resources and operations', () => {
+	const { properties } = searchNode.description;
+	const optionValues = (name: string, resource?: string) =>
+		(
+			properties.find(
+				(p) =>
+					p.name === name &&
+					(resource === undefined || p.displayOptions?.show?.resource?.includes(resource)),
+			)?.options as INodePropertyOptions[]
+		).map((o) => o.value);
 
-	it('keeps the same parameters as before People Search', () => {
-		expect(searchNode.description.properties.map((p) => p.name)).toEqual([
-			'operation',
-			'prompt',
-			'tools',
-			'dateFilter',
-			'resultType',
-			'query',
-			'start',
-			'count',
-			'sort',
+	it('groups operations by resource, Search first by default', () => {
+		expect(optionValues('resource')).toEqual([
+			'facebook',
+			'instagram',
+			'search',
+			'tiktok',
+			'webPage',
+			'x',
 		]);
-		expect(operations.map((o) => o.value)).toEqual(['aiSearch', 'webSearch', 'xSearch']);
+		expect(withSearchDefaults({})).toMatchObject({ resource: 'search', operation: 'aiSearch' });
 	});
 
-	it('keeps the AI, web and X search routing', () => {
-		expect(operations.map((o) => o.routing)).toEqual([
-			{
-				request: {
-					method: 'POST',
-					url: '/desearch/ai/search',
-					body: {
-						prompt: '={{$parameter.prompt}}',
-						tools: '={{$parameter.tools}}',
-						date_filter: '={{$parameter.dateFilter || undefined}}',
-						result_type: '={{$parameter.resultType}}',
-						streaming: false,
-					},
-				},
-			},
-			{
-				request: {
-					method: 'GET',
-					url: '/web',
-					qs: { query: '={{$parameter.query}}', start: '={{$parameter.start}}' },
-				},
-			},
-			{
-				request: {
-					method: 'GET',
-					url: '/twitter',
-					qs: {
-						query: '={{$parameter.query}}',
-						count: '={{$parameter.count}}',
-						sort: '={{$parameter.sort}}',
-					},
-				},
-			},
-		]);
+	it.each([
+		[
+			'search',
+			['aiSearch', 'aiWebLinksSearch', 'aiXLinksSearch', 'searchApi', 'webSearch', 'xSearch'],
+		],
+		['webPage', ['extract']],
+		[
+			'x',
+			[
+				'getPost',
+				'getPostReplies',
+				'getPostsByUrls',
+				'getRetweeters',
+				'getTrends',
+				'getUserPosts',
+				'getUserReplies',
+				'searchUserPosts',
+			],
+		],
+		[
+			'tiktok',
+			[
+				'getComments',
+				'getHashtagPosts',
+				'getPost',
+				'getProfile',
+				'getProfilePosts',
+				'getTrending',
+				'search',
+			],
+		],
+		[
+			'facebook',
+			['getComments', 'getHashtagPosts', 'getPost', 'getProfile', 'getProfilePosts', 'search'],
+		],
+		[
+			'instagram',
+			['getComments', 'getHashtagPosts', 'getPost', 'getProfile', 'getProfilePosts', 'search'],
+		],
+	])('%s has its operations', (resource, operations) => {
+		expect(optionValues('operation', resource)).toEqual(operations);
+	});
+
+	it('routes every TikTok, Facebook and Instagram operation', () => {
+		for (const resource of ['tiktok', 'facebook', 'instagram']) {
+			expect(Object.keys(SOCIAL_ROUTES[resource]).sort(), resource).toEqual(
+				[...optionValues('operation', resource)].sort(),
+			);
+		}
+	});
+
+	it('shows Cursor on every social list that pages, and only there', () => {
+		const cursorShown = (resource: string, operation: string) =>
+			'cursor' in withSearchDefaults({ resource, operation });
+		for (const [resource, routes] of Object.entries(SOCIAL_ROUTES)) {
+			for (const [operation, route] of Object.entries(routes)) {
+				expect(cursorShown(resource, operation), `${resource} ${operation}`).toBe(
+					route.cursor === true,
+				);
+			}
+		}
+		expect(cursorShown('x', 'getRetweeters')).toBe(true);
+		expect(cursorShown('x', 'getUserPosts')).toBe(true);
+		expect(cursorShown('x', 'getPost')).toBe(false);
+	});
+
+	it('has the documented defaults', () => {
+		expect(withSearchDefaults({ operation: 'aiWebLinksSearch' })).toMatchObject({
+			count: 10,
+			options: {},
+		});
+		expect(withSearchDefaults({ operation: 'searchApi' })).toMatchObject({ count: 10 });
+		expect(withSearchDefaults({ resource: 'webPage' })).toMatchObject({
+			operation: 'extract',
+			format: 'text',
+		});
+		expect(withSearchDefaults({ resource: 'x' })).toMatchObject({ operation: 'getPost' });
+		expect(withSearchDefaults({ resource: 'x', operation: 'getTrends' })).toMatchObject({
+			woeid: 1,
+			count: 30,
+		});
+		expect(withSearchDefaults({ resource: 'tiktok' })).toMatchObject({
+			operation: 'search',
+			count: 10,
+			cursor: '',
+		});
+		expect(withSearchDefaults({ resource: 'tiktok', operation: 'getTrending' })).toMatchObject({
+			region: 'US',
+			count: 20,
+		});
+		expect(withSearchDefaults({ resource: 'instagram', operation: 'getComments' })).toMatchObject({
+			count: 20,
+			cursor: '',
+		});
 	});
 });
 
@@ -122,6 +187,7 @@ describe('Desearch People Search node parameters', () => {
 	it('has the search and profile operations', () => {
 		expect(optionValues('search')).toEqual([
 			'cancel',
+			'exportResults',
 			'get',
 			'getAll',
 			'getResults',
@@ -129,7 +195,7 @@ describe('Desearch People Search node parameters', () => {
 			'resume',
 			'start',
 		]);
-		expect(optionValues('profile')).toEqual(['getAll']);
+		expect(optionValues('profile')).toEqual(['export', 'getAll']);
 	});
 
 	it('has the documented defaults', () => {
@@ -148,6 +214,21 @@ describe('Desearch People Search node parameters', () => {
 			returnAll: true,
 		});
 		expect(withDefaults({ operation: 'getAll' })).toMatchObject({ returnAll: false, limit: 50 });
+		expect(withDefaults({ operation: 'exportResults', taskId: 'abc' })).toMatchObject({
+			waitForCompletion: true,
+			timeout: 600,
+			pollInterval: 15,
+			format: 'csv',
+			binaryPropertyName: 'data',
+			resultFilters: {},
+		});
+		expect(withDefaults({ resource: 'profile', operation: 'export' })).toMatchObject({
+			platform: 'x',
+			sortBy: 'score',
+			format: 'csv',
+			binaryPropertyName: 'data',
+			profileFilters: {},
+		});
 		expect(withDefaults({ resource: 'profile' })).toMatchObject({
 			operation: 'getAll',
 			platform: 'x',

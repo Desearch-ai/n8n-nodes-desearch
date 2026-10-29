@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-desearch",
-  "version": "0.2.0",
-  "description": "AI search, X search, web search and people search for AI agents.",
+  "version": "0.3.0",
+  "description": "AI search, web search, X, TikTok, Facebook and Instagram data, page extraction and people search for AI agents.",
   "license": "MIT",
   "homepage": "https://github.com/Desearch-ai/n8n-nodes-desearch",
   "keywords": [
@@ -10,6 +10,10 @@
     "search",
     "x-search",
     "web-search",
+    "tiktok",
+    "facebook",
+    "instagram",
+    "extract",
     "people-search"
   ],
   "author": {
@@ -27,6 +31,7 @@
     "lint": "n8n-node lint",
     "lint:fix": "n8n-node lint --fix",
     "test": "vitest run",
+    "e2e": "npm run build && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/e2e-full-coverage.mts",
     "release": "n8n-node release",
     "prepublishOnly": "n8n-node prerelease"
   },
