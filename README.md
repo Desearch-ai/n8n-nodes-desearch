@@ -1,6 +1,6 @@
 # n8n-nodes-desearch
 
-AI search, web search, X, TikTok, Facebook and Instagram data, page extraction and people search for AI agents.
+AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data, page extraction and people search for AI agents.
 
 This is an n8n community node for the [Desearch API](https://desearch.ai). It calls the Desearch REST API directly and has no runtime dependencies.
 
@@ -46,11 +46,19 @@ For Get Retweeters and Get User Posts, put the `next_cursor` of a page in **Curs
 
 **Instagram** resource: **Search Profiles** (`POST /desearch/instagram/search`), **Get Post** by shortcode, ID or URL (`GET /desearch/instagram/media/{id}`), **Get Profile** (`GET /desearch/instagram/profile/{username}`), **Get Profile Posts** (`GET /desearch/instagram/profile/{username}/posts`), **Get Comments** by post shortcode (`GET /desearch/instagram/comments/{shortcode}`) and **Get Hashtag Posts** (`GET /desearch/instagram/hashtag/{tag}`).
 
-Usernames work with or without the `@`, hashtags with or without the `#`.
+**YouTube** resource: **Search** videos, Shorts, live streams, channels and playlists, with options for type, upload date, sort and duration (`POST /desearch/youtube/search`), **Get Video** by ID or URL (`GET /desearch/youtube/video/{id}`), **Get Transcript**, optionally in a caption language (`GET /desearch/youtube/transcript/{video_id}`), **Get Comments**, top or newest (`GET /desearch/youtube/comments/{video_id}`), **Get Channel** by handle or channel ID (`GET /desearch/youtube/channel/{handle}`) and **Get Channel Videos**, latest or popular (`GET /desearch/youtube/channel/{handle}/videos`).
 
-#### TikTok, Facebook and Instagram pages
+**Reddit** resource: **Search** posts across all subreddits, with sort and timeframe (`POST /desearch/reddit/search`), **Get Subreddit** (`GET /desearch/reddit/subreddit/{name}`; the name is case-sensitive), **Get Subreddit Posts** with sort and timeframe (`GET /desearch/reddit/subreddit/{name}/posts`), **Get Post** by ID or URL (`GET /desearch/reddit/post/{id}`) and **Get Comments**, a comment tree with the replies Reddit loaded (`GET /desearch/reddit/comments/{post_id}`).
 
-Get Post and Get Profile output the post or profile. Every other TikTok, Facebook and Instagram operation outputs **one item per page**:
+**Threads** resource: **Search** posts, optionally between two dates (`POST /desearch/threads/search`), **Search Users** (`POST /desearch/threads/search/users`), **Get Profile** (`GET /desearch/threads/profile/{username}`), **Get Profile Posts**, the latest 20 to 30 (`GET /desearch/threads/profile/{username}/posts`) and **Get Post** by URL or shortcode, with its replies and thread posts (`GET /desearch/threads/post/{id}`).
+
+YouTube, Reddit and Threads operations have no **Count**: each call returns one page as the platform serves it. Every call is billed as one request, including an empty page; a 404 (for example a video without captions) and a 422 are not charged.
+
+Usernames work with or without the `@`, hashtags with or without the `#`, subreddits with or without `r/`. Video, post and comment IDs can be URLs.
+
+#### Social pages
+
+Get Post, Get Profile, Get Video, Get Transcript, Get Channel and Get Subreddit output that one object. Every other TikTok, Facebook, Instagram, YouTube, Reddit and Threads operation outputs **one item per page**:
 
 ```json
 {
@@ -59,7 +67,7 @@ Get Post and Get Profile output the post or profile. Every other TikTok, Faceboo
 }
 ```
 
-`results` holds the posts, comments, ad records or profiles of the page (at most **Count**; a page can have fewer). `nextCursor` is the cursor of the next page, or `null` on the last page. To get the next page, run the same operation with the same parameters and put that cursor in **Cursor**, for example `{{ $json.nextCursor }}`. A cursor is opaque: pass it back unchanged. It is valid for 24 hours and only for the same operation and target (username, hashtag, post or query); any other cursor fails with a 422 and is not charged. TikTok Get Trending and Instagram Search Profiles return a single page (`nextCursor` is always `null`).
+`results` holds the posts, videos, comments, ad records or profiles of the page (at most **Count** where there is one; a page can have fewer). `nextCursor` is the cursor of the next page, or `null` on the last page. To get the next page, run the same operation with the same parameters and put that cursor in **Cursor**, for example `{{ $json.nextCursor }}`. A cursor is opaque: pass it back unchanged. It is valid for 24 hours and only for the same operation and target (username, hashtag, post or query); any other cursor fails with a 422 and is not charged. TikTok Get Trending, Instagram Search Profiles and every Threads operation return a single page (`nextCursor` is always `null`).
 
 To page through a list in a workflow: run the operation, use a **Split Out** node on `results` to get one item per post, and loop back to the operation with **Cursor** set to `{{ $json.nextCursor }}` until it is `null` (an **If** node on `nextCursor` "is not empty").
 
@@ -107,6 +115,13 @@ npm test
 ```bash
 DESEARCH_API_KEY=... npm run e2e
 DESEARCH_API_KEY=... npm run e2e -- --with-people
+```
+
+`scripts/e2e-youtube-reddit-threads.mts` does the same for the YouTube, Reddit and Threads operations: every operation once, the next page of each list that returns a cursor, and a tampered cursor that must fail with a 422 (about $0.05 a run). It reads the key from `DESEARCH_API_KEY` (or the variable `--key-env` names, or `~/.config/desearch/e2e.env`), and `--base-url` sends the node's requests to another deployment:
+
+```bash
+DESEARCH_API_KEY=... npm run e2e:yrt
+npm run e2e:yrt -- --base-url https://api-dev.desearch.ai --key-env DESEARCH_DEV_API_KEY
 ```
 
 ## Credentials

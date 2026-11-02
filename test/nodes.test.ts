@@ -70,10 +70,13 @@ describe('Desearch node resources and operations', () => {
 		expect(optionValues('resource')).toEqual([
 			'facebook',
 			'instagram',
+			'reddit',
 			'search',
+			'threads',
 			'tiktok',
 			'webPage',
 			'x',
+			'youtube',
 		]);
 		expect(withSearchDefaults({})).toMatchObject({ resource: 'search', operation: 'aiSearch' });
 	});
@@ -117,12 +120,18 @@ describe('Desearch node resources and operations', () => {
 			'instagram',
 			['getComments', 'getHashtagPosts', 'getPost', 'getProfile', 'getProfilePosts', 'search'],
 		],
+		[
+			'youtube',
+			['getChannel', 'getChannelVideos', 'getComments', 'getTranscript', 'getVideo', 'search'],
+		],
+		['reddit', ['getComments', 'getPost', 'getSubreddit', 'getSubredditPosts', 'search']],
+		['threads', ['getPost', 'getProfile', 'getProfilePosts', 'search', 'searchUsers']],
 	])('%s has its operations', (resource, operations) => {
 		expect(optionValues('operation', resource)).toEqual(operations);
 	});
 
-	it('routes every TikTok, Facebook and Instagram operation', () => {
-		for (const resource of ['tiktok', 'facebook', 'instagram']) {
+	it('routes every TikTok, Facebook, Instagram, YouTube, Reddit and Threads operation', () => {
+		for (const resource of ['tiktok', 'facebook', 'instagram', 'youtube', 'reddit', 'threads']) {
 			expect(Object.keys(SOCIAL_ROUTES[resource]).sort(), resource).toEqual(
 				[...optionValues('operation', resource)].sort(),
 			);
@@ -142,6 +151,17 @@ describe('Desearch node resources and operations', () => {
 		expect(cursorShown('x', 'getRetweeters')).toBe(true);
 		expect(cursorShown('x', 'getUserPosts')).toBe(true);
 		expect(cursorShown('x', 'getPost')).toBe(false);
+	});
+
+	it('shows Count on no YouTube, Reddit or Threads operation (they take none)', () => {
+		for (const resource of ['youtube', 'reddit', 'threads']) {
+			for (const [operation, route] of Object.entries(SOCIAL_ROUTES[resource])) {
+				if (route.list) {
+					expect(route.noCount, `${resource} ${operation}`).toBe(true);
+				}
+				expect('count' in withSearchDefaults({ resource, operation }), operation).toBe(false);
+			}
+		}
 	});
 
 	it('has the documented defaults', () => {
@@ -172,6 +192,21 @@ describe('Desearch node resources and operations', () => {
 			count: 20,
 			cursor: '',
 		});
+		expect(withSearchDefaults({ resource: 'youtube' })).toMatchObject({
+			operation: 'search',
+			query: '',
+			cursor: '',
+			options: {},
+		});
+		expect(withSearchDefaults({ resource: 'reddit', operation: 'getComments' })).toMatchObject({
+			postId: '',
+			cursor: '',
+		});
+		expect(withSearchDefaults({ resource: 'threads' })).toMatchObject({
+			operation: 'search',
+			options: {},
+		});
+		expect('cursor' in withSearchDefaults({ resource: 'threads' })).toBe(false);
 	});
 });
 

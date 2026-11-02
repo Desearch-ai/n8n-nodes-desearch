@@ -14,8 +14,11 @@ import { searchFields, searchOperations } from './descriptions/SearchDescription
 import {
 	facebookOperations,
 	instagramOperations,
+	redditOperations,
 	socialFields,
+	threadsOperations,
 	tiktokOperations,
+	youtubeOperations,
 } from './descriptions/SocialDescription';
 import { webPageFields, webPageOperations } from './descriptions/WebPageDescription';
 import { xFields, xOperations } from './descriptions/XDescription';
@@ -41,9 +44,21 @@ const resourceProperty: INodeProperties = {
 			description: 'Public profiles, posts and comments',
 		},
 		{
+			name: 'Reddit',
+			value: 'reddit',
+			description: 'Public posts, subreddits and comment trees',
+		},
+		{
 			name: 'Search',
 			value: 'search',
 			description: 'Search the web and X for a query or prompt',
+		},
+		{
+			// Threads is the product's name, not a plural.
+			// eslint-disable-next-line n8n-nodes-base/node-param-resource-with-plural-option
+			name: 'Threads',
+			value: 'threads',
+			description: 'Public posts, profiles and accounts',
 		},
 		{
 			name: 'TikTok',
@@ -60,6 +75,11 @@ const resourceProperty: INodeProperties = {
 			value: 'x',
 			description: 'Posts, replies, users and trends on X',
 		},
+		{
+			name: 'YouTube',
+			value: 'youtube',
+			description: 'Public videos, transcripts, comments and channels',
+		},
 	],
 	default: 'search',
 };
@@ -72,7 +92,8 @@ export class Desearch implements INodeType {
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-		description: 'AI search, web search, X, TikTok, Facebook and Instagram data for AI agents',
+		description:
+			'AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data for AI agents',
 		defaults: {
 			name: 'Desearch',
 		},
@@ -88,6 +109,9 @@ export class Desearch implements INodeType {
 			tiktokOperations,
 			facebookOperations,
 			instagramOperations,
+			youtubeOperations,
+			redditOperations,
+			threadsOperations,
 			...searchFields,
 			...webPageFields,
 			...xFields,

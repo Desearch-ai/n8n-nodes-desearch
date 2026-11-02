@@ -24,7 +24,7 @@ const JSON_HEADERS: IDataObject = {
 	'Content-Type': 'application/json',
 };
 
-/** Response header with the cursor of the next page of a TikTok, Facebook or Instagram list. */
+/** Response header with the cursor of the next page of a social, YouTube or Reddit list. */
 export const NEXT_CURSOR_HEADER = 'x-desearch-next-cursor';
 
 /** The object without the keys whose value is undefined, null or ''. */
@@ -54,7 +54,7 @@ export function toItems(body: unknown): IDataObject[] {
 }
 
 /**
- * One output item for a page of a TikTok, Facebook or Instagram list: the entries in
+ * One output item for a page of a social, YouTube, Reddit or Threads list: the entries in
  * `results` and the cursor of the next page in `nextCursor` (null on the last page).
  */
 export function listPage(response: IN8nHttpFullResponse): IDataObject {
@@ -331,9 +331,31 @@ interface SocialRoute {
 	list?: boolean;
 	/** Sends `cursor` for the next page. */
 	cursor?: boolean;
+	/** Takes no `count`: one call returns one provider page (YouTube, Reddit and Threads). */
+	noCount?: boolean;
+	/** More body fields (search) or query values (other routes), read from the node parameters. */
+	extra?: (context: Context) => IDataObject;
 }
 
-/** TikTok, Facebook and Instagram operations -> routes. */
+/** `extra` that sends values of the Options collection: API parameter name -> option name. */
+function fromOptions(names: Record<string, string>): (context: Context) => IDataObject {
+	return ({ parameter }) => {
+		const options = parameter('options', {}) as IDataObject;
+		return Object.fromEntries(
+			Object.entries(names).map(([api, option]) => {
+				const value = options[option];
+				return [api, typeof value === 'string' ? value.trim() : value];
+			}),
+		);
+	};
+}
+
+const VIDEO: PathParameter = { name: 'videoId', label: 'Video' };
+const CHANNEL: PathParameter = { name: 'channel', label: 'Channel' };
+const SUBREDDIT: PathParameter = { name: 'subreddit', label: 'Subreddit', strip: 'r/' };
+const POST: PathParameter = { name: 'postId', label: 'Post' };
+
+/** TikTok, Facebook, Instagram, YouTube, Reddit and Threads operations -> routes. */
 export const SOCIAL_ROUTES: Record<string, Record<string, SocialRoute>> = {
 	tiktok: {
 		search: { path: '/desearch/tiktok/search', search: true, list: true, cursor: true },
@@ -412,6 +434,102 @@ export const SOCIAL_ROUTES: Record<string, Record<string, SocialRoute>> = {
 			cursor: true,
 		},
 	},
+	youtube: {
+		search: {
+			path: '/desearch/youtube/search',
+			search: true,
+			list: true,
+			cursor: true,
+			noCount: true,
+			extra: fromOptions({
+				type: 'type',
+				upload_date: 'uploadDate',
+				sort_by: 'sortBy',
+				duration: 'duration',
+			}),
+		},
+		getVideo: { path: '/desearch/youtube/video/{}', pathParameter: VIDEO },
+		getTranscript: {
+			path: '/desearch/youtube/transcript/{}',
+			pathParameter: VIDEO,
+			extra: fromOptions({ language: 'language' }),
+		},
+		getComments: {
+			path: '/desearch/youtube/comments/{}',
+			pathParameter: VIDEO,
+			list: true,
+			cursor: true,
+			noCount: true,
+			extra: fromOptions({ order: 'order' }),
+		},
+		getChannel: { path: '/desearch/youtube/channel/{}', pathParameter: CHANNEL },
+		getChannelVideos: {
+			path: '/desearch/youtube/channel/{}/videos',
+			pathParameter: CHANNEL,
+			list: true,
+			cursor: true,
+			noCount: true,
+			extra: fromOptions({ sort: 'sort' }),
+		},
+	},
+	reddit: {
+		search: {
+			path: '/desearch/reddit/search',
+			search: true,
+			list: true,
+			cursor: true,
+			noCount: true,
+			extra: fromOptions({ sort: 'sort', timeframe: 'timeframe' }),
+		},
+		getSubreddit: { path: '/desearch/reddit/subreddit/{}', pathParameter: SUBREDDIT },
+		getSubredditPosts: {
+			path: '/desearch/reddit/subreddit/{}/posts',
+			pathParameter: SUBREDDIT,
+			list: true,
+			cursor: true,
+			noCount: true,
+			extra: fromOptions({ sort: 'sort', timeframe: 'timeframe' }),
+		},
+		getPost: { path: '/desearch/reddit/post/{}', pathParameter: POST },
+		getComments: {
+			path: '/desearch/reddit/comments/{}',
+			pathParameter: POST,
+			list: true,
+			cursor: true,
+			noCount: true,
+		},
+	},
+	threads: {
+		// No Threads route pages.
+		search: {
+			path: '/desearch/threads/search',
+			search: true,
+			list: true,
+			noCount: true,
+			extra: ({ parameter, self, itemIndex }) => {
+				const options = parameter('options', {}) as IDataObject;
+				const node = self.getNode();
+				return {
+					start_date: apiDate(node, itemIndex, options.startDate, 'Start Date', true),
+					end_date: apiDate(node, itemIndex, options.endDate, 'End Date', true),
+				};
+			},
+		},
+		searchUsers: {
+			path: '/desearch/threads/search/users',
+			search: true,
+			list: true,
+			noCount: true,
+		},
+		getProfile: { path: '/desearch/threads/profile/{}', pathParameter: USERNAME },
+		getProfilePosts: {
+			path: '/desearch/threads/profile/{}/posts',
+			pathParameter: USERNAME,
+			list: true,
+			noCount: true,
+		},
+		getPost: { path: '/desearch/threads/post/{}', pathParameter: POST },
+	},
 };
 
 async function runSocial(
@@ -433,15 +551,18 @@ async function runSocial(
 		path = path.replace('{}', encodeURIComponent(text(name, label, strip)));
 	}
 
+	const extra = compact(route.extra?.(context) ?? {});
+
 	let response: IN8nHttpFullResponse;
 	if (route.search) {
 		const options = parameter('options', {}) as IDataObject;
 		response = await request('POST', path, {
 			body: compact({
 				query: text('query', 'Query'),
-				count: parameter('count', 10) as number,
+				count: route.noCount ? undefined : (parameter('count', 10) as number),
 				cursor,
 				sort: resource === 'tiktok' ? String(options.sort ?? '').trim() : undefined,
+				...extra,
 			}),
 		});
 	} else if (route.list) {
@@ -449,9 +570,13 @@ async function runSocial(
 		if (operation === 'getTrending') {
 			qs.region = (String(parameter('region', 'US') ?? '').trim() || 'US').toUpperCase();
 		}
-		qs.count = parameter('count', 20);
+		if (!route.noCount) {
+			qs.count = parameter('count', 20);
+		}
 		qs.cursor = cursor;
-		response = await request('GET', path, { qs });
+		response = await request('GET', path, { qs: { ...qs, ...extra } });
+	} else if (Object.keys(extra).length > 0) {
+		response = await request('GET', path, { qs: extra });
 	} else {
 		response = await request('GET', path);
 	}
@@ -485,6 +610,9 @@ export async function runDesearchOperation(
 		case 'tiktok':
 		case 'facebook':
 		case 'instagram':
+		case 'youtube':
+		case 'reddit':
+		case 'threads':
 			return await runSocial(context, resource, operation);
 	}
 	return unsupported(context, resource, operation);

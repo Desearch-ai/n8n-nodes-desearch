@@ -495,6 +495,249 @@ describe('Instagram', () => {
 	});
 });
 
+describe('YouTube', () => {
+	const youtube = (parameters: INodeParameters) => ({ resource: 'youtube', ...parameters });
+	const get = (path: string, qs?: IDataObject) => ({
+		method: 'GET',
+		url: `${API}${path}`,
+		headers: JSON_HEADERS,
+		...(qs ? { qs } : {}),
+	});
+	const item = (id: string) => ({
+		id,
+		type: 'video',
+		url: `https://www.youtube.com/watch?v=${id}`,
+	});
+
+	itSends({
+		'Search posts only the query, never a count, and returns the page and its cursor': {
+			parameters: youtube({ query: ' bittensor ' }),
+			request: {
+				method: 'POST',
+				url: `${API}/desearch/youtube/search`,
+				headers: JSON_HEADERS,
+				body: { query: 'bittensor' },
+			},
+			reply: response([item('a'), item('b')], 200, { [NEXT]: 'yt-2' }),
+			output: [{ results: [item('a'), item('b')], nextCursor: 'yt-2' }],
+		},
+		'Search sends every option and the cursor': {
+			parameters: youtube({
+				query: 'bittensor',
+				cursor: ' yt-2 ',
+				options: {
+					type: 'videos',
+					uploadDate: 'this_month',
+					sortBy: 'popular',
+					duration: 'over_20_min',
+				},
+			}),
+			request: {
+				method: 'POST',
+				url: `${API}/desearch/youtube/search`,
+				headers: JSON_HEADERS,
+				body: {
+					query: 'bittensor',
+					cursor: 'yt-2',
+					type: 'videos',
+					upload_date: 'this_month',
+					sort_by: 'popular',
+					duration: 'over_20_min',
+				},
+			},
+			reply: response([item('c')]),
+			output: [{ results: [item('c')], nextCursor: null }],
+		},
+		'Get Video URL-encodes a video URL into one path segment': {
+			parameters: youtube({ operation: 'getVideo', videoId: 'https://youtu.be/dQw4w9WgXcQ' }),
+			request: get('/desearch/youtube/video/https%3A%2F%2Fyoutu.be%2FdQw4w9WgXcQ'),
+			reply: response({ id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up' }),
+			output: [{ id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up' }],
+		},
+		'Get Transcript sends no query without a language': {
+			parameters: youtube({ operation: 'getTranscript', videoId: 'dQw4w9WgXcQ' }),
+			request: get('/desearch/youtube/transcript/dQw4w9WgXcQ'),
+			reply: response({ videoId: 'dQw4w9WgXcQ', text: 'We are no strangers', segments: [] }),
+			output: [{ videoId: 'dQw4w9WgXcQ', text: 'We are no strangers', segments: [] }],
+		},
+		'Get Transcript sends the language': {
+			parameters: youtube({
+				operation: 'getTranscript',
+				videoId: 'dQw4w9WgXcQ',
+				options: { language: ' es ' },
+			}),
+			request: get('/desearch/youtube/transcript/dQw4w9WgXcQ', { language: 'es' }),
+			reply: response({ videoId: 'dQw4w9WgXcQ', language: 'Spanish' }),
+			output: [{ videoId: 'dQw4w9WgXcQ', language: 'Spanish' }],
+		},
+		'Get Comments sends the order and cursor, never a count': {
+			parameters: youtube({
+				operation: 'getComments',
+				videoId: 'dQw4w9WgXcQ',
+				cursor: 'c2',
+				options: { order: 'newest' },
+			}),
+			request: get('/desearch/youtube/comments/dQw4w9WgXcQ', { cursor: 'c2', order: 'newest' }),
+			reply: response([{ id: 'c1', text: 'classic' }], 200, { [NEXT]: 'c3' }),
+			output: [{ results: [{ id: 'c1', text: 'classic' }], nextCursor: 'c3' }],
+		},
+		'Get Channel keeps the @ (the API takes both)': {
+			parameters: youtube({ operation: 'getChannel', channel: '@MrBeast' }),
+			request: get('/desearch/youtube/channel/%40MrBeast'),
+			reply: response({ id: 'UCX6OQ3DkcsbYNE6H8uQQuVA', handle: 'MrBeast' }),
+			output: [{ id: 'UCX6OQ3DkcsbYNE6H8uQQuVA', handle: 'MrBeast' }],
+		},
+		'Get Channel Videos sends no query by default': {
+			parameters: youtube({ operation: 'getChannelVideos', channel: 'UCX6OQ3DkcsbYNE6H8uQQuVA' }),
+			request: get('/desearch/youtube/channel/UCX6OQ3DkcsbYNE6H8uQQuVA/videos', {}),
+			reply: response([item('v1')], 200, { [NEXT]: 'v2' }),
+			output: [{ results: [item('v1')], nextCursor: 'v2' }],
+		},
+		'Get Channel Videos sends the sort and cursor': {
+			parameters: youtube({
+				operation: 'getChannelVideos',
+				channel: 'MrBeast',
+				cursor: 'v2',
+				options: { sort: 'popular' },
+			}),
+			request: get('/desearch/youtube/channel/MrBeast/videos', { cursor: 'v2', sort: 'popular' }),
+			reply: response([item('v3')]),
+			output: [{ results: [item('v3')], nextCursor: null }],
+		},
+	});
+});
+
+describe('Reddit', () => {
+	const reddit = (parameters: INodeParameters) => ({ resource: 'reddit', ...parameters });
+	const get = (path: string, qs?: IDataObject) => ({
+		method: 'GET',
+		url: `${API}${path}`,
+		headers: JSON_HEADERS,
+		...(qs ? { qs } : {}),
+	});
+	const post = { id: '1q6pxwn', name: 't3_1q6pxwn', title: 'Just started web scraping' };
+
+	itSends({
+		'Search posts the query, options and cursor, never a count': {
+			parameters: reddit({
+				query: 'bittensor',
+				cursor: 'r2',
+				options: { sort: 'top', timeframe: 'week' },
+			}),
+			request: {
+				method: 'POST',
+				url: `${API}/desearch/reddit/search`,
+				headers: JSON_HEADERS,
+				body: { query: 'bittensor', cursor: 'r2', sort: 'top', timeframe: 'week' },
+			},
+			reply: response([post], 200, { [NEXT]: 'r3' }),
+			output: [{ results: [post], nextCursor: 'r3' }],
+		},
+		'Get Subreddit drops the r/': {
+			parameters: reddit({ operation: 'getSubreddit', subreddit: 'r/AskReddit' }),
+			request: get('/desearch/reddit/subreddit/AskReddit'),
+			reply: response({ id: 't5_2qh1i', name: 'AskReddit' }),
+			output: [{ id: 't5_2qh1i', name: 'AskReddit' }],
+		},
+		'Get Subreddit Posts sends sort, timeframe and cursor': {
+			parameters: reddit({
+				operation: 'getSubredditPosts',
+				subreddit: 'AskReddit',
+				cursor: 's2',
+				options: { sort: 'top', timeframe: 'month' },
+			}),
+			request: get('/desearch/reddit/subreddit/AskReddit/posts', {
+				cursor: 's2',
+				sort: 'top',
+				timeframe: 'month',
+			}),
+			reply: response([post], 200, { [NEXT]: 's3' }),
+			output: [{ results: [post], nextCursor: 's3' }],
+		},
+		'Get Post URL-encodes a post URL into one path segment': {
+			parameters: reddit({
+				operation: 'getPost',
+				postId: 'https://www.reddit.com/r/webscraping/comments/1q6pxwn/',
+			}),
+			request: get(
+				'/desearch/reddit/post/https%3A%2F%2Fwww.reddit.com%2Fr%2Fwebscraping%2Fcomments%2F1q6pxwn%2F',
+			),
+			reply: response(post),
+			output: [post],
+		},
+		'Get Comments returns the comment tree page and its cursor': {
+			parameters: reddit({ operation: 'getComments', postId: 't3_1q6pxwn' }),
+			request: get('/desearch/reddit/comments/t3_1q6pxwn', {}),
+			reply: response([{ id: 'c1', depth: 0, replies: [{ id: 'c2', depth: 1 }] }], 200, {
+				[NEXT]: 'rc2',
+			}),
+			output: [
+				{
+					results: [{ id: 'c1', depth: 0, replies: [{ id: 'c2', depth: 1 }] }],
+					nextCursor: 'rc2',
+				},
+			],
+		},
+	});
+});
+
+describe('Threads', () => {
+	const threads = (parameters: INodeParameters) => ({ resource: 'threads', ...parameters });
+	const get = (path: string) => ({ method: 'GET', url: `${API}${path}`, headers: JSON_HEADERS });
+	const thread = { id: '3656367813102434565', code: 'DK-BydcJHkF', text: 'hello' };
+
+	itSends({
+		'Search posts the query and the dates as YYYY-MM-DD (UTC)': {
+			parameters: threads({
+				query: 'bittensor',
+				options: { startDate: '2026-01-01T00:00:00', endDate: '2026-10-30T23:00:00-05:00' },
+			}),
+			request: {
+				method: 'POST',
+				url: `${API}/desearch/threads/search`,
+				headers: JSON_HEADERS,
+				body: { query: 'bittensor', start_date: '2026-01-01', end_date: '2026-10-31' },
+			},
+			reply: response([thread]),
+			output: [{ results: [thread], nextCursor: null }],
+		},
+		'Search Users posts the query only': {
+			parameters: threads({ operation: 'searchUsers', query: 'zuck' }),
+			request: {
+				method: 'POST',
+				url: `${API}/desearch/threads/search/users`,
+				headers: JSON_HEADERS,
+				body: { query: 'zuck' },
+			},
+			reply: response([{ id: '63055343223', username: 'zuck' }]),
+			output: [{ results: [{ id: '63055343223', username: 'zuck' }], nextCursor: null }],
+		},
+		'Get Profile drops the @': {
+			parameters: threads({ operation: 'getProfile', username: '@zuck' }),
+			request: get('/desearch/threads/profile/zuck'),
+			reply: response({ id: '63055343223', username: 'zuck', followers: 5000000 }),
+			output: [{ id: '63055343223', username: 'zuck', followers: 5000000 }],
+		},
+		'Get Profile Posts sends no count or cursor': {
+			parameters: threads({ operation: 'getProfilePosts', username: 'zuck' }),
+			request: { ...get('/desearch/threads/profile/zuck/posts'), qs: {} },
+			reply: response([thread]),
+			output: [{ results: [thread], nextCursor: null }],
+		},
+		'Get Post URL-encodes a post URL into one path segment': {
+			parameters: threads({
+				operation: 'getPost',
+				postId: 'https://www.threads.com/@zuck/post/DK-BydcJHkF',
+			}),
+			request: get(
+				'/desearch/threads/post/https%3A%2F%2Fwww.threads.com%2F%40zuck%2Fpost%2FDK-BydcJHkF',
+			),
+			reply: response({ ...thread, comments: [], threadItems: [] }),
+			output: [{ ...thread, comments: [], threadItems: [] }],
+		},
+	});
+});
+
 describe('social list output', () => {
 	it('reads the next cursor header in any case and keeps it unchanged', async () => {
 		const { output } = await run({
@@ -520,6 +763,13 @@ describe('errors', () => {
 		[{ resource: 'tiktok', operation: 'getHashtagPosts', hashtag: '#' }, 'Hashtag is empty'],
 		[{ resource: 'facebook', operation: 'getProfile', profileId: '' }, 'Profile or Page is empty'],
 		[{ resource: 'instagram', operation: 'getComments', shortcode: ' ' }, 'Shortcode is empty'],
+		[{ resource: 'youtube', operation: 'getVideo', videoId: ' ' }, 'Video is empty'],
+		[{ resource: 'reddit', operation: 'getSubreddit', subreddit: 'r/' }, 'Subreddit is empty'],
+		[{ resource: 'threads', operation: 'searchUsers', query: '' }, 'Query is empty'],
+		[
+			{ resource: 'threads', query: 'q', options: { endDate: 'yesterday' } },
+			'End Date is not a valid date: "yesterday"',
+		],
 		[{ resource: 'webPage', url: '' }, 'URL is empty'],
 		[
 			{ operation: 'searchApi', query: 'q', options: { startDate: 'next tuesday' } },
@@ -538,6 +788,19 @@ describe('errors', () => {
 	it('fails with the API reason as the description', async () => {
 		const { context } = createSearchContext(
 			{ resource: 'tiktok', operation: 'getProfilePosts', username: 'tiktok', cursor: 'stale' },
+			{ http: () => response({ detail: 'Invalid request parameters' }, 422) },
+		);
+
+		const error = await searchNode.execute.call(context).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).httpCode).toBe('422');
+		expect((error as NodeApiError).description).toBe('Invalid request parameters');
+	});
+
+	it('fails with the API reason for an expired YouTube or Reddit cursor (422, not charged)', async () => {
+		const { context } = createSearchContext(
+			{ resource: 'reddit', query: 'bittensor', cursor: 'expired' },
 			{ http: () => response({ detail: 'Invalid request parameters' }, 422) },
 		);
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- The **Desearch** node has three more resources: **YouTube** (Search, Get Video, Get Transcript, Get Comments, Get Channel, Get Channel Videos), **Reddit** (Search, Get Subreddit, Get Subreddit Posts, Get Post, Get Comments) and **Threads** (Search, Search Users, Get Profile, Get Profile Posts, Get Post): the 16 `/desearch/youtube`, `/desearch/reddit` and `/desearch/threads` routes.
+- List operations output one item per page, `{ results, nextCursor }`, like TikTok, Facebook and Instagram. YouTube Search, Get Comments and Get Channel Videos and Reddit Search, Get Subreddit Posts and Get Comments take a **Cursor**; Threads operations do not page. These operations have no Count.
+- Filters are in **Options**: YouTube search type, upload date, sort and duration; comment order; channel video sort; transcript language; Reddit sort and timeframe; Threads start and end dates (sent as UTC days).
+- Video, post and channel values are URL-encoded, so a YouTube, Reddit or Threads URL works as an ID; `r/` is dropped from subreddit names.
+- `scripts/e2e-youtube-reddit-threads.mts` (`npm run e2e:yrt`): smoke test of the new operations against a live API, with `--base-url` and `--key-env`.
+
 ## 0.3.0
 
 - The **Desearch** node now uses resources: **Search**, **Web Page**, **X**, **TikTok**, **Facebook** and **Instagram**. Existing workflows keep working unchanged: AI Search, Web Search and X Search sit under the default Search resource with the same parameters, and send the same requests (a test replays the 0.2.0 routing to prove it). The node version stays 1.
