@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-desearch",
   "version": "0.4.0",
-  "description": "AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data, page extraction and people search for AI agents.",
+  "description": "AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data, page extraction, people search and company search for AI agents.",
   "license": "MIT",
   "homepage": "https://github.com/Desearch-ai/n8n-nodes-desearch",
   "keywords": [
@@ -17,7 +17,8 @@
     "reddit",
     "threads",
     "extract",
-    "people-search"
+    "people-search",
+    "company-search"
   ],
   "author": {
     "name": "Desearch AI",
@@ -51,7 +52,8 @@
     ],
     "nodes": [
       "dist/nodes/Desearch/Desearch.node.js",
-      "dist/nodes/DesearchPeopleSearch/DesearchPeopleSearch.node.js"
+      "dist/nodes/DesearchPeopleSearch/DesearchPeopleSearch.node.js",
+      "dist/nodes/DesearchCompanySearch/DesearchCompanySearch.node.js"
     ]
   },
   "devDependencies": {

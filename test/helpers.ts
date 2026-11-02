@@ -10,11 +10,13 @@ import {
 import { vi } from 'vitest';
 
 import { Desearch } from '../nodes/Desearch/Desearch.node';
+import { DesearchCompanySearch } from '../nodes/DesearchCompanySearch/DesearchCompanySearch.node';
 import { DesearchPeopleSearch } from '../nodes/DesearchPeopleSearch/DesearchPeopleSearch.node';
 import { createNodeExecuteContext } from './context';
 
 export const peopleNode = new DesearchPeopleSearch();
 export const searchNode = new Desearch();
+export const companyNode = new DesearchCompanySearch();
 
 export const node: INode = {
 	id: 'people-node',
@@ -49,9 +51,12 @@ export function nodeParameters(nodeType: INodeType, parameters: INodeParameters)
 	);
 }
 
-/** People Search node parameters with defaults filled in. */
-export function withDefaults(parameters: INodeParameters): INodeParameters {
-	return nodeParameters(peopleNode, parameters);
+/** Node parameters with defaults filled in, People Search by default. */
+export function withDefaults(
+	parameters: INodeParameters,
+	nodeType: INodeType = peopleNode,
+): INodeParameters {
+	return nodeParameters(nodeType, parameters);
 }
 
 /** An HTTP response as httpRequestWithAuthentication returns it with returnFullResponse. */
@@ -113,12 +118,19 @@ function contextFor(nodeType: INodeType, nodeData: INode) {
 	};
 }
 
+type ContextOptions = { http?: HttpHandler; continueOnFail?: boolean; cancelSignal?: AbortSignal };
+
 /**
- * A minimal IExecuteFunctions for the People Search node: one input item per entry of
- * `items` (its node parameters, defaults filled in), authenticated HTTP goes to `http`
- * (no network).
+ * A minimal IExecuteFunctions for the People Search node (or `nodeType`, such as the
+ * Company Search node): one input item per entry of `items` (its node parameters,
+ * defaults filled in), authenticated HTTP goes to `http` (no network).
  */
-export const createExecuteContext = contextFor(peopleNode, node);
+export function createExecuteContext(
+	items: INodeParameters | INodeParameters[],
+	{ nodeType = peopleNode, ...options }: ContextOptions & { nodeType?: INodeType } = {},
+) {
+	return contextFor(nodeType, node)(items, options);
+}
 
 /** The same for the Desearch node. */
 export const createSearchContext = contextFor(searchNode, desearchNode);
