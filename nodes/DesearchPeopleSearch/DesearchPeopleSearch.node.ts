@@ -11,15 +11,22 @@ import {
 import {
 	MAX_PAGE_SIZE,
 	asNodeError,
+	buildExportResultsQuery,
 	buildListProfilesQuery,
 	buildListTasksQuery,
 	buildStartSearchRequest,
 	collectPages,
+	exportFile,
 	peopleApiRequest,
 	taskPath,
 	waitForTask,
 } from './GenericFunctions';
 import { peopleSearchProperties } from './PeopleSearchDescription';
+
+/** One output item per JSON result. */
+function jsonItems(results: IDataObject[]): INodeExecutionData[] {
+	return results.map((json) => ({ json }));
+}
 
 /** Max entries to return: Infinity when Return All is on. */
 function resultLimit(
@@ -44,12 +51,25 @@ function taskIdParameter(this: IExecuteFunctions, itemIndex: number): string {
 	return taskId;
 }
 
+/** Waits for a search to finish when Wait for Completion is on (Get Results, Export Results). */
+async function waitIfAsked(this: IExecuteFunctions, itemIndex: number, taskId: string) {
+	if (this.getNodeParameter('waitForCompletion', itemIndex, true) === true) {
+		await waitForTask.call(
+			this,
+			itemIndex,
+			taskId,
+			this.getNodeParameter('timeout', itemIndex, 600) as number,
+			this.getNodeParameter('pollInterval', itemIndex, 15) as number,
+		);
+	}
+}
+
 async function runOperation(
 	this: IExecuteFunctions,
 	resource: string,
 	operation: string,
 	itemIndex: number,
-): Promise<IDataObject[]> {
+): Promise<INodeExecutionData[]> {
 	if (resource === 'search') {
 		switch (operation) {
 			case 'start': {
@@ -60,84 +80,122 @@ async function runOperation(
 					searchOptions: this.getNodeParameter('searchOptions', itemIndex, {}) as IDataObject,
 					searchFilters: this.getNodeParameter('searchFilters', itemIndex, {}) as IDataObject,
 				});
-				return [await peopleApiRequest.call(this, itemIndex, 'POST', path, { body, headers })];
+				return jsonItems([
+					await peopleApiRequest.call(this, itemIndex, 'POST', path, { body, headers }),
+				]);
 			}
 			case 'get':
-				return [
+				return jsonItems([
 					await peopleApiRequest.call(
 						this,
 						itemIndex,
 						'GET',
 						taskPath(taskIdParameter.call(this, itemIndex)),
 					),
-				];
+				]);
 			case 'pause':
 			case 'resume':
 			case 'cancel':
-				return [
+				return jsonItems([
 					await peopleApiRequest.call(
 						this,
 						itemIndex,
 						'POST',
 						taskPath(taskIdParameter.call(this, itemIndex), `/${operation}`),
 					),
-				];
+				]);
 			case 'getResults': {
 				const taskId = taskIdParameter.call(this, itemIndex);
-				if (this.getNodeParameter('waitForCompletion', itemIndex, true) === true) {
-					await waitForTask.call(
+				await waitIfAsked.call(this, itemIndex, taskId);
+				return jsonItems(
+					await collectPages.call(
 						this,
 						itemIndex,
-						taskId,
-						this.getNodeParameter('timeout', itemIndex, 600) as number,
-						this.getNodeParameter('pollInterval', itemIndex, 15) as number,
-					);
-				}
-				return await collectPages.call(
-					this,
-					itemIndex,
-					taskPath(taskId, '/results'),
-					{},
-					{
-						listProperty: 'results',
-						maxPageSize: MAX_PAGE_SIZE.results,
-						limit: resultLimit.call(this, itemIndex, true),
-						hasMorePages: (page) => page.has_more === true,
-					},
+						taskPath(taskId, '/results'),
+						{},
+						{
+							listProperty: 'results',
+							maxPageSize: MAX_PAGE_SIZE.results,
+							limit: resultLimit.call(this, itemIndex, true),
+							hasMorePages: (page) => page.has_more === true,
+						},
+					),
 				);
 			}
+			case 'exportResults': {
+				const taskId = taskIdParameter.call(this, itemIndex);
+				await waitIfAsked.call(this, itemIndex, taskId);
+				return [
+					await exportFile.call(
+						this,
+						itemIndex,
+						taskPath(taskId, '/export'),
+						buildExportResultsQuery(
+							this.getNodeParameter('format', itemIndex, 'csv') as string,
+							this.getNodeParameter('resultFilters', itemIndex, {}) as IDataObject,
+						),
+						`people-search-${taskId}`,
+						{ task_id: taskId },
+					),
+				];
+			}
 			case 'getAll':
-				return await collectPages.call(
-					this,
-					itemIndex,
-					'/desearch/people/tasks',
-					buildListTasksQuery(this.getNodeParameter('taskFilters', itemIndex, {}) as IDataObject),
-					{
-						listProperty: 'tasks',
-						maxPageSize: MAX_PAGE_SIZE.tasks,
-						limit: resultLimit.call(this, itemIndex, false),
-						hasMorePages: () => true,
-					},
+				return jsonItems(
+					await collectPages.call(
+						this,
+						itemIndex,
+						'/desearch/people/tasks',
+						buildListTasksQuery(this.getNodeParameter('taskFilters', itemIndex, {}) as IDataObject),
+						{
+							listProperty: 'tasks',
+							maxPageSize: MAX_PAGE_SIZE.tasks,
+							limit: resultLimit.call(this, itemIndex, false),
+							hasMorePages: () => true,
+						},
+					),
 				);
 		}
 	}
 
-	if (resource === 'profile' && operation === 'getAll') {
-		return await collectPages.call(
-			this,
-			itemIndex,
-			'/desearch/people/profiles',
-			buildListProfilesQuery(
-				this.getNodeParameter('platform', itemIndex) as string,
-				this.getNodeParameter('sortBy', itemIndex, 'score') as string,
-				this.getNodeParameter('profileFilters', itemIndex, {}) as IDataObject,
+	if (resource === 'profile' && operation === 'export') {
+		const platform = this.getNodeParameter('platform', itemIndex) as string;
+		return [
+			await exportFile.call(
+				this,
+				itemIndex,
+				'/desearch/people/profiles/export',
+				{
+					format: this.getNodeParameter('format', itemIndex, 'csv') as string,
+					...buildListProfilesQuery(
+						platform,
+						this.getNodeParameter('sortBy', itemIndex, 'score') as string,
+						this.getNodeParameter('profileFilters', itemIndex, {}) as IDataObject,
+					),
+				},
+				`people-search-${platform}-profiles`,
+				{ platform },
 			),
-			{
-				listProperty: 'profiles',
-				maxPageSize: MAX_PAGE_SIZE.profiles,
-				limit: resultLimit.call(this, itemIndex, false),
-				hasMorePages: () => true,
-			},
+		];
+	}
+
+	if (resource === 'profile' && operation === 'getAll') {
+		return jsonItems(
+			await collectPages.call(
+				this,
+				itemIndex,
+				'/desearch/people/profiles',
+				buildListProfilesQuery(
+					this.getNodeParameter('platform', itemIndex) as string,
+					this.getNodeParameter('sortBy', itemIndex, 'score') as string,
+					this.getNodeParameter('profileFilters', itemIndex, {}) as IDataObject,
+				),
+				{
+					listProperty: 'profiles',
+					maxPageSize: MAX_PAGE_SIZE.profiles,
+					limit: resultLimit.call(this, itemIndex, false),
+					hasMorePages: () => true,
+				},
+			),
 		);
 	}
 
@@ -156,7 +214,8 @@ export class DesearchPeopleSearch implements INodeType {
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-		description: 'Find people on X, YouTube, LinkedIn and TikTok by describing them',
+		description:
+			'Find people on X, YouTube, LinkedIn and TikTok by describing them, and export them',
 		defaults: {
 			name: 'Desearch People Search',
 		},
@@ -176,8 +235,8 @@ export class DesearchPeopleSearch implements INodeType {
 				const resource = this.getNodeParameter('resource', itemIndex) as string;
 				const operation = this.getNodeParameter('operation', itemIndex) as string;
 				const results = await runOperation.call(this, resource, operation, itemIndex);
-				for (const json of results) {
-					returnData.push({ json, pairedItem: { item: itemIndex } });
+				for (const item of results) {
+					returnData.push({ ...item, pairedItem: { item: itemIndex } });
 				}
 			} catch (error) {
 				const nodeError = asNodeError(this.getNode(), error, itemIndex);
