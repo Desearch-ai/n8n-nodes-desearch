@@ -137,10 +137,17 @@ export const itemOperations: INodeProperties = {
 	default: 'getAll',
 };
 
+const TIKTOK_NOTE =
+	"TikTok search has no working date filter and ranks by relevance, so a TikTok keyword monitor finds a new video only when it reaches TikTok's top results. To follow creators, watch their accounts (TikTok Accounts).";
+
 const sourceOptions = [
 	{ name: 'Reddit', value: 'reddit' },
 	{ name: 'Threads', value: 'threads' },
-	{ name: 'TikTok', value: 'tiktok' },
+	{
+		name: 'TikTok',
+		value: 'tiktok',
+		description: TIKTOK_NOTE,
+	},
 	{ name: 'Web', value: 'web' },
 	{ name: 'X', value: 'x' },
 	{ name: 'YouTube', value: 'youtube' },
@@ -338,8 +345,7 @@ const tiktokCountField: INodeProperties = {
 		{ name: '30', value: 30 },
 	],
 	default: 10,
-	description:
-		'Posts each run reads from TikTok, per account when it watches accounts ($0.00207 a post)',
+	description: `Posts each run reads from TikTok ($0.00207 a post). With TikTok Accounts, this many from each account. ${TIKTOK_NOTE}`,
 };
 
 const xAccountsField: INodeProperties = {

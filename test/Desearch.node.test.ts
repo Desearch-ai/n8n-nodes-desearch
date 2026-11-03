@@ -329,17 +329,6 @@ describe('TikTok', () => {
 			reply: response([video('3')]),
 			output: [{ results: [video('3')], nextCursor: null }],
 		},
-		'Search sends the Date Posted time frame': {
-			parameters: tiktok({ query: 'bittensor', options: { datePosted: 'last-3-months' } }),
-			request: {
-				method: 'POST',
-				url: `${API}/desearch/tiktok/search`,
-				headers: JSON_HEADERS,
-				body: { query: 'bittensor', count: 10, date_posted: 'last-3-months' },
-			},
-			reply: response([video('4')]),
-			output: [{ results: [video('4')], nextCursor: null }],
-		},
 		'Get Post puts the video ID in the path': {
 			parameters: tiktok({ operation: 'getPost', postId: '7499229683859426602' }),
 			request: get('/desearch/tiktok/post/7499229683859426602'),
