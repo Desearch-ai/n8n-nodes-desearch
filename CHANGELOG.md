@@ -8,6 +8,10 @@
   - Both are sent only when set.
 - The Query description shows how to restrict a search to named companies with their websites ("Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk). Return only those."). The Count and Cancel descriptions mention the budget's effort charge.
 
+### Fixed
+
+- The README said a Company Search that delivers any companies is billed for at least 2. Since 2026-11-02 the minimum is 1 company for both Company Search and Company Enrich. Company Search costs $45 per 1000 companies and Company Enrich $50 per 1000. The node and README do not state a price; they link to https://desearch.ai/pricing.
+
 ## 0.4.0
 
 Full API coverage in the **Desearch** node, plus YouTube, Reddit and Threads. Company Search (0.3.0) is unchanged.
