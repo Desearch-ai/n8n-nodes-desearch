@@ -163,6 +163,57 @@ describe('Company Search > Start', () => {
 		});
 	});
 
+	it('sends a search budget and the task to continue from', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				query: 'Civil engineering contractors in Western Australia',
+				count: 50,
+				searchOptions: { maxCostUsd: 10, continueFrom: TASK_ID },
+			},
+			{
+				http: api({
+					'POST /desearch/companies/search': () =>
+						response({ task_id: 'next', status: 'queued', reserved_cost_usd: 10 }, 202),
+				}),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json).toEqual({ task_id: 'next', status: 'queued', reserved_cost_usd: 10 });
+		const [, request] = httpRequestWithAuthentication.mock.calls[0];
+		expect(request.body).toEqual({
+			query: 'Civil engineering contractors in Western Australia',
+			count: 50,
+			max_cost_usd: 10,
+			continue_from: TASK_ID,
+		});
+	});
+
+	it('fails with the API reason when the search to continue from has not ended', async () => {
+		const { context } = createExecuteContext(
+			{ query: 'Fintech startups in Berlin', searchOptions: { continueFrom: TASK_ID } },
+			{
+				http: () =>
+					response(
+						{
+							detail:
+								'The search to continue from has not ended: wait for it to finish, or cancel it.',
+						},
+						409,
+					),
+			},
+		);
+
+		const error = await execute(context).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).httpCode).toBe('409');
+		expect((error as NodeApiError).description).toBe(
+			'The search to continue from has not ended: wait for it to finish, or cancel it.',
+		);
+	});
+
 	it('sends only query and count by default', async () => {
 		const { context, httpRequestWithAuthentication } = createExecuteContext(
 			{ query: 'Dental clinics in Lisbon' },

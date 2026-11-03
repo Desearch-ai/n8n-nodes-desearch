@@ -69,6 +69,33 @@ describe('buildStartCompanySearchRequest', () => {
 		expect(headers).toEqual({});
 	});
 
+	it('sends the search budget and the task to continue from only when set', () => {
+		const { body } = buildStartCompanySearchRequest({
+			query: 'Fintech startups',
+			count: 50,
+			searchFilters: {},
+			searchOptions: {
+				maxCostUsd: 7.5,
+				continueFrom: ' 0c9f3a52-7d1e-4f0a-9a3b-2b8e6f1d4c77 ',
+			},
+		});
+
+		expect(body).toEqual({
+			query: 'Fintech startups',
+			count: 50,
+			max_cost_usd: 7.5,
+			continue_from: '0c9f3a52-7d1e-4f0a-9a3b-2b8e6f1d4c77',
+		});
+
+		const unset = buildStartCompanySearchRequest({
+			query: 'Fintech startups',
+			count: 50,
+			searchFilters: {},
+			searchOptions: { maxCostUsd: '', continueFrom: '  ' },
+		});
+		expect(unset.body).toEqual({ query: 'Fintech startups', count: 50 });
+	});
+
 	it('keeps min_score 0', () => {
 		const { body } = buildStartCompanySearchRequest({
 			query: 'Fintech startups',
@@ -113,6 +140,14 @@ describe('node options match the API values', () => {
 		);
 		return (property?.options as Array<{ value: string }>).map((o) => o.value).sort();
 	};
+
+	it('lists the Company Search options sorted by display name', () => {
+		const collection = companyNode.description.properties.find((p) => p.name === 'searchOptions');
+		const names = (collection?.options as Array<{ displayName: string }>).map((o) => o.displayName);
+		expect(names).toEqual([...names].sort());
+		expect(names).toContain('Search Budget (USD)');
+		expect(names).toContain('Continue From Task ID');
+	});
 
 	it('offers every role and requirement the API accepts', () => {
 		expect(options('searchOptions', 'roles')).toEqual([...COMPANY_ROLES].sort());

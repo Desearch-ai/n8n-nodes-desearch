@@ -134,6 +134,14 @@ export function buildStartCompanySearchRequest({
 	if (exclude.length > 0) {
 		body.exclude = exclude;
 	}
+	// A budget reserves all of it and charges search effort, so it is sent only when set.
+	if (isSet(searchOptions.maxCostUsd)) {
+		body.max_cost_usd = Number(searchOptions.maxCostUsd);
+	}
+	const continueFrom = String(searchOptions.continueFrom ?? '').trim();
+	if (continueFrom !== '') {
+		body.continue_from = continueFrom;
+	}
 
 	const filters: IDataObject = {};
 	const countries = splitList(searchFilters.countries);

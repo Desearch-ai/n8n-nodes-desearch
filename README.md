@@ -105,7 +105,10 @@ Find companies by describing them in plain language, for example "Series A finte
 
 **Company Search** resource:
 
-- **Start**: start a search from a description (`POST /desearch/companies/search`). Set how many companies to deliver (5 to 200) and, optionally, countries, what every company must have (email, phone, company LinkedIn page, a leader, a leader with an email), a minimum fit score, domains to leave out, which leaders to find, whether to infer and check emails, and metadata labels. The task runs in the background and the node returns it.
+- **Start**: start a search from a description (`POST /desearch/companies/search`). Set how many companies to deliver (5 to 200) and, optionally, countries, what every company must have (email, phone, company LinkedIn page, a leader, a leader with an email), a minimum fit score, domains to leave out, which leaders to find, whether to infer and check emails, metadata labels, a **Search Budget (USD)** and a **Continue From Task ID**. The task runs in the background and the node returns it.
+  - To check only companies you name, give their websites in **Query**: "Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk). Return only those." Only those domains are checked, and the task ends with `completion_reason` `all_domains_processed`. Names without websites do not restrict the search: it runs as usual with warning `scope_not_applied`.
+  - Without a budget, a search stops once it costs more than the companies it found pay for. It ends with `completion_reason` `cost_limit` and `coverage_limited` true. To look further, start another search with the same Query and Filters, the Count still wanted, and **Continue From Task ID** set to the first task's ID. That search leaves out every company the first one excluded, delivered or held for review. The first task must have ended.
+  - **Search Budget (USD)** (up to 100, at least Count times the price) reserves the whole budget, and the search keeps going until it delivers Count or spends the budget. Its search effort is charged where the companies delivered do not cover it, even when it finds few companies or none. Set it only when you accept that charge.
 
 **Company Enrich** resource:
 
@@ -120,7 +123,7 @@ Both resources also have:
 
 A typical workflow is **Company Search > Start**, then **Company Search > Get Results** with Task ID `{{ $json.task_id }}`. A People Search task ID does not work on this node, and a company task ID does not work on Desearch People Search.
 
-**Billing.** Only Start is billed. Company Search reserves `count` companies and Company Enrich one company per domain, at the route's per-company price ([prices](https://desearch.ai/pricing)). When the task ends you pay only for the companies it delivered, with a minimum of 2 (Company Search) or 1 (Company Enrich) when it delivers any; a task that delivers none is free, and a company left out by Min Score or Must Have is not billed. Every other operation is free. As with People Search, set an **Idempotency Key** when you turn on **Retry On Fail** for Start.
+**Billing.** Only Start is billed. Company Search reserves `count` companies and Company Enrich one company per domain, at the route's per-company price ([prices](https://desearch.ai/pricing)). When the task ends you pay only for the companies it delivered, with a minimum of 2 (Company Search) or 1 (Company Enrich) when it delivers any; a task that delivers none is free, and a company left out by Min Score or Must Have is not billed. A Company Search with a **Search Budget (USD)** reserves the whole budget instead, and also pays its search effort where the companies delivered do not cover it, up to the budget, even when it delivers none. The unused part is returned. Every other operation is free. As with People Search, set an **Idempotency Key** when you turn on **Retry On Fail** for Start.
 
 All three nodes can also be used as tools by AI Agent nodes and use the same **Desearch API** credential.
 

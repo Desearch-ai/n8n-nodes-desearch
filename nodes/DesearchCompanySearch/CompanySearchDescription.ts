@@ -44,7 +44,8 @@ const taskOperations = (
 			name: 'Cancel',
 			value: 'cancel',
 			action: `Cancel a ${noun}`,
-			description: 'Stop a task. You pay only for the companies it delivered.',
+			description:
+				'Stop a task. You pay only for the companies it delivered (a search with a Search Budget also pays its search effort).',
 		},
 		{
 			name: 'Get',
@@ -183,7 +184,7 @@ const searchStartFields: INodeProperties[] = [
 		typeOptions: { rows: 2 },
 		placeholder: 'e.g. Series A fintech startups in Berlin building payment infrastructure',
 		description:
-			'The companies you are looking for, in plain language: what they do, where, how far along (3 to 1,000 characters)',
+			'The companies you are looking for, in plain language: what they do, where, how far along (3 to 1,000 characters). To check only companies you name, give their websites, e.g. "Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk). Return only those."',
 		displayOptions: showFor(['search'], ['start']),
 	},
 	{
@@ -193,7 +194,7 @@ const searchStartFields: INodeProperties[] = [
 		typeOptions: { minValue: 5, maxValue: 200 },
 		default: 25,
 		description:
-			'How many companies to deliver (5 to 200). The task reserves this many at the Company Search price and bills only the companies it delivers. A task that delivers none is free.',
+			'How many companies to deliver (5 to 200). The task reserves this many at the Company Search price and bills only the companies it delivers. A task that delivers none is free, unless Search Budget (USD) is set.',
 		displayOptions: showFor(['search'], ['start']),
 	},
 	{
@@ -239,6 +240,15 @@ const searchStartFields: INodeProperties[] = [
 		displayOptions: showFor(['search'], ['start']),
 		options: [
 			{
+				displayName: 'Continue From Task ID',
+				name: 'continueFrom',
+				type: 'string',
+				default: '',
+				placeholder: 'e.g. 0c9f3a52-7d1e-4f0a-9a3b-2b8e6f1d4c77',
+				description:
+					'The task_id of an earlier Company Search of yours that has ended, for example one that stopped at cost_limit. This search leaves out every company that one excluded, delivered or held for review, so it only finds new ones. Use the same Query and Filters, with the Count still wanted. Fails while that task is running or paused.',
+			},
+			{
 				displayName: 'Exclude Domains',
 				name: 'exclude',
 				type: 'string',
@@ -256,6 +266,15 @@ const searchStartFields: INodeProperties[] = [
 				typeOptions: { minValue: 0, maxValue: 100 },
 				default: 60,
 				description: 'Only deliver companies with at least this fit score (0 to 100)',
+			},
+			{
+				displayName: 'Search Budget (USD)',
+				name: 'maxCostUsd',
+				type: 'number',
+				typeOptions: { minValue: 0.01, maxValue: 100, numberPrecision: 2 },
+				default: 5,
+				description:
+					'The most this search may charge (up to 100), at least Count times the Company Search price. Without it, a search stops once it costs more than the companies it found pay for (completion_reason cost_limit). With it, the whole budget is reserved and the search keeps going until it delivers Count or spends the budget. Its search effort is charged where the companies delivered do not cover it, up to the budget, even when it finds few companies or none. The unused part is returned.',
 			},
 			// Verify Emails.
 			...taskStartOptions.slice(4),
