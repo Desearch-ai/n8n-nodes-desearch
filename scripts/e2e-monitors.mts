@@ -448,12 +448,16 @@ async function accounts(): Promise<void> {
 			youtube: { channels: ['@OpenAI'] },
 			tiktok: { count: 20, accounts: ['openai'] },
 		});
-		const sorted = (text: string) =>
-			JSON.stringify(
-				Object.fromEntries(
-					Object.entries(JSON.parse(text) as IDataObject).sort(([a], [b]) => a.localeCompare(b)),
-				),
-			);
+		// Key order is not part of the contract, at any depth (the API returns x as lang, count, accounts).
+		const sortKeys = (value: unknown): unknown =>
+			value && typeof value === 'object' && !Array.isArray(value)
+				? Object.fromEntries(
+						Object.entries(value as IDataObject)
+							.sort(([a], [b]) => a.localeCompare(b))
+							.map(([key, entry]) => [key, sortKeys(entry)]),
+					)
+				: value;
+		const sorted = (text: string) => JSON.stringify(sortKeys(JSON.parse(text)));
 		if (sorted(options) !== sorted(expected)) {
 			totals.fail++;
 			line(`FAIL monitor.create (TikTok, watched accounts): options are ${options}`);
