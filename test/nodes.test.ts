@@ -436,6 +436,22 @@ describe('Desearch Monitors node parameters', () => {
 		]);
 		expect(optionValues('run')).toEqual(['get', 'getAll']);
 		expect(optionValues('item')).toEqual(['getAll']);
+		const sources = (name: string) =>
+			(properties.find((p) => p.name === name)?.options as INodePropertyOptions[]).map(
+				(o) => o.value,
+			);
+		expect(sources('sources')).toEqual(['reddit', 'threads', 'tiktok', 'web', 'x', 'youtube']);
+		const itemSource = (
+			properties.find((p) => p.name === 'itemFilters')?.options as INodeProperties[]
+		).find((o) => o.name === 'source')?.options as INodePropertyOptions[];
+		expect(itemSource.map((o) => o.value)).toEqual([
+			'reddit',
+			'threads',
+			'tiktok',
+			'web',
+			'x',
+			'youtube',
+		]);
 	});
 
 	it('has the documented defaults', () => {

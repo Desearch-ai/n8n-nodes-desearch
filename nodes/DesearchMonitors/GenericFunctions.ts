@@ -16,7 +16,7 @@ import { isSet } from '../shared/transport';
  * item and the summary's LLM usage). Same credential and errors as People Search.
  */
 
-export const MONITOR_SOURCES = ['web', 'x', 'reddit', 'youtube', 'threads'] as const;
+export const MONITOR_SOURCES = ['web', 'x', 'reddit', 'youtube', 'threads', 'tiktok'] as const;
 
 export const MONITOR_INTERVALS = ['1h', '3h', '6h', '12h', '1d', '7d'] as const;
 
@@ -28,6 +28,19 @@ export const MONITOR_EVENTS = [
 
 /** Most criteria a monitor takes. */
 export const MONITOR_CRITERIA_MAX = 5;
+
+/**
+ * Watched-account fields: node field -> [source, API option]. With accounts (up to 10 per
+ * source), a source reads their newest posts instead of searching. Names go to the API as
+ * typed; it cleans them (`@OpenAI` or a profile URL becomes `OpenAI`) and returns 422 for a
+ * name it cannot read.
+ */
+const ACCOUNT_FIELDS: Record<string, [string, string]> = {
+	xAccounts: ['x', 'accounts'],
+	redditSubreddits: ['reddit', 'subreddits'],
+	youtubeChannels: ['youtube', 'channels'],
+	tiktokAccounts: ['tiktok', 'accounts'],
+};
 
 /** Largest `limit` each monitor list accepts. */
 export const MONITOR_PAGE_SIZE = {
@@ -82,26 +95,42 @@ function sourceList(node: INode, itemIndex: number, value: unknown): string[] {
 
 /**
  * The API's per-source `options` from the node's flat option fields, or undefined when none
- * is set: `web.count`; `x.count`, `x.lang`, `x.min_likes`. Reddit, YouTube and Threads take none.
+ * is set: `web.count`; `x.count`, `x.lang`, `x.min_likes`, `x.accounts`; `reddit.subreddits`;
+ * `youtube.channels`; `tiktok.count`, `tiktok.accounts`. Threads takes none. An account field
+ * that is set but empty is sent as `[]` with `clearEmpty` (Update: it stops watching them).
  */
-export function sourceOptions(fields: IDataObject): IDataObject | undefined {
-	const options: IDataObject = {};
+export function sourceOptions(
+	fields: IDataObject,
+	{ clearEmpty = false }: { clearEmpty?: boolean } = {},
+): IDataObject | undefined {
+	const options: Record<string, IDataObject> = {};
+	const set = (source: string, name: string, value: number | string | string[]) => {
+		options[source] = { ...options[source], [name]: value };
+	};
 	if (isSet(fields.webCount)) {
-		options.web = { count: Number(fields.webCount) };
+		set('web', 'count', Number(fields.webCount));
 	}
-	const x: IDataObject = {};
 	if (isSet(fields.xCount)) {
-		x.count = Number(fields.xCount);
+		set('x', 'count', Number(fields.xCount));
 	}
 	const lang = String(fields.xLang ?? '').trim();
 	if (lang !== '') {
-		x.lang = lang;
+		set('x', 'lang', lang);
 	}
 	if (isSet(fields.xMinLikes)) {
-		x.min_likes = Number(fields.xMinLikes);
+		set('x', 'min_likes', Number(fields.xMinLikes));
 	}
-	if (Object.keys(x).length > 0) {
-		options.x = x;
+	if (isSet(fields.tiktokCount)) {
+		set('tiktok', 'count', Number(fields.tiktokCount));
+	}
+	for (const [field, [source, name]] of Object.entries(ACCOUNT_FIELDS)) {
+		if (fields[field] === undefined) {
+			continue;
+		}
+		const accounts = [...new Set(splitList(fields[field]))];
+		if (accounts.length > 0 || clearEmpty) {
+			set(source, name, accounts);
+		}
 	}
 	return Object.keys(options).length > 0 ? options : undefined;
 }
@@ -206,7 +235,7 @@ export function buildEstimateBody(
  * `webhook` as a whole, so changing part of them keeps the rest from the current monitor.
  */
 export function updateNeedsCurrent(fields: IDataObject): boolean {
-	return sourceOptions(fields) !== undefined || changesWebhook(fields);
+	return sourceOptions(fields, { clearEmpty: true }) !== undefined || changesWebhook(fields);
 }
 
 /**
@@ -248,7 +277,7 @@ export function buildUpdateMonitorBody(
 		body.summary = fields.summary;
 	}
 
-	const changed = sourceOptions(fields);
+	const changed = sourceOptions(fields, { clearEmpty: true });
 	if (changed !== undefined) {
 		const options: IDataObject = { ...((current.options ?? {}) as IDataObject) };
 		for (const [source, values] of Object.entries(changed)) {

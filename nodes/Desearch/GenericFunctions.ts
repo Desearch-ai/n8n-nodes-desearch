@@ -562,6 +562,7 @@ async function runSocial(
 				count: route.noCount ? undefined : (parameter('count', 10) as number),
 				cursor,
 				sort: resource === 'tiktok' ? String(options.sort ?? '').trim() : undefined,
+				date_posted: resource === 'tiktok' ? options.datePosted : undefined,
 				...extra,
 			}),
 		});

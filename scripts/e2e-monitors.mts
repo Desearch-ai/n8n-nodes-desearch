@@ -4,8 +4,12 @@
 // IExecuteFunctions the unit tests use (test/context.ts); only HTTP is real here. It estimates a
 // monitor, creates one with run_now off, reads, lists, updates (rename, pause, a per-source option,
 // webhook events), lists its runs and items, sends a test webhook event, rotates the secret and
-// deletes it, then checks that the deleted monitor is a 404. One line per call: `PASS name` or
-// `FAIL name: error`. The script exits with 1 when any call fails, and always deletes the monitor.
+// deletes it, then checks that the deleted monitor is a 404. A second monitor watches accounts on
+// X, Reddit, YouTube and TikTok: it checks that the API returns their names cleaned, that an Update
+// keeps the accounts it does not change, that an empty field stops watching, and that a bad name is
+// a 422. On an API without the TikTok source and watched accounts, that part prints SKIP. One line
+// per call: `PASS name`, `FAIL name: error` or `SKIP name: reason`. The script exits with 1 when any
+// call fails, and always deletes the monitors it created.
 //
 // Free: every Monitors route is free, and the monitor never runs (run_now off, paused, and Trigger
 // Run is not called). The test webhook goes to https://example.com, which does not answer it with
@@ -88,7 +92,7 @@ const nodeData: INode = {
 	parameters: {},
 };
 
-const totals = { pass: 0, fail: 0, requests: 0 };
+const totals = { pass: 0, fail: 0, skip: 0, requests: 0 };
 const line = (text: string) =>
 	process.stdout.write(`${text.split(apiKey as string).join('***')}\n`);
 
@@ -378,8 +382,134 @@ async function run(): Promise<void> {
 	await expectHttpError('monitor.get (deleted is a 404)', monitor({ operation: 'get' }), '404');
 }
 
+/** Whether `error` says the API does not know the TikTok source or watched accounts (422). */
+const withoutAccounts = (error: unknown) => (error as { httpCode?: string }).httpCode === '422';
+
+async function accounts(): Promise<void> {
+	const estimate = {
+		operation: 'estimate',
+		sources: ['x', 'reddit', 'youtube', 'tiktok'],
+		interval: '1d',
+		estimateOptions: {
+			xAccounts: '@OpenAI, AnthropicAI',
+			tiktokAccounts: '@openai',
+			tiktokCount: 20,
+		},
+	};
+	try {
+		const [item] = (await execute(estimate)).map((output) => output.json);
+		if (typeof item.max_run_cost_usd !== 'number') throw new Error('no max_run_cost_usd');
+		totals.pass++;
+		line(`PASS monitor.estimate (TikTok, watched accounts) (max $${item.max_run_cost_usd} a run)`);
+	} catch (error) {
+		if (withoutAccounts(error)) {
+			totals.skip++;
+			line(
+				`SKIP TikTok and watched accounts: this API does not take them (${describeError(error)})`,
+			);
+			return;
+		}
+		totals.fail++;
+		line(`FAIL monitor.estimate (TikTok, watched accounts): ${describeError(error)}`);
+		return;
+	}
+	await expectHttpError(
+		'monitor.estimate (a bad X username is a 422)',
+		{ ...estimate, estimateOptions: { xAccounts: 'not a username!' } },
+		'422',
+	);
+
+	let monitorId: string | undefined;
+	try {
+		const [item] = (
+			await execute({
+				operation: 'create',
+				query: 'OpenAI announcements',
+				sources: ['x', 'reddit', 'youtube', 'tiktok'],
+				interval: '7d',
+				createOptions: {
+					name: `n8n e2e accounts ${new Date().toISOString()}`,
+					minScore: 0,
+					xAccounts: '@OpenAI, https://x.com/AnthropicAI',
+					xLang: 'en',
+					redditSubreddits: 'r/LocalLLaMA',
+					youtubeChannels: 'https://www.youtube.com/@OpenAI',
+					tiktokAccounts: '@openai',
+					tiktokCount: 20,
+					runNow: false,
+				},
+			})
+		).map((output) => output.json);
+		monitorId = String(item.monitor_id);
+		const options = JSON.stringify(item.options);
+		const expected = JSON.stringify({
+			x: { count: 20, lang: 'en', accounts: ['OpenAI', 'AnthropicAI'] },
+			reddit: { subreddits: ['LocalLLaMA'] },
+			youtube: { channels: ['@OpenAI'] },
+			tiktok: { count: 20, accounts: ['openai'] },
+		});
+		const sorted = (text: string) =>
+			JSON.stringify(
+				Object.fromEntries(
+					Object.entries(JSON.parse(text) as IDataObject).sort(([a], [b]) => a.localeCompare(b)),
+				),
+			);
+		if (sorted(options) !== sorted(expected)) {
+			totals.fail++;
+			line(`FAIL monitor.create (TikTok, watched accounts): options are ${options}`);
+		} else {
+			totals.pass++;
+			line(`PASS monitor.create (TikTok, watched accounts) (names cleaned: ${options})`);
+		}
+	} catch (error) {
+		totals.skip++;
+		line(`SKIP monitor.create (TikTok, watched accounts): ${describeError(error)}`);
+		return;
+	}
+
+	const monitor = (parameters: INodeParameters) => ({ monitorId, ...parameters });
+	try {
+		await call(
+			'monitor.update (TikTok posts per run keeps every account)',
+			monitor({ operation: 'update', updateFields: { tiktokCount: 30 } }),
+			one((item) => {
+				const options = (item.options ?? {}) as Record<string, IDataObject>;
+				if (JSON.stringify(options.tiktok) !== '{"count":30,"accounts":["openai"]}') {
+					return `options.tiktok is ${JSON.stringify(options.tiktok)}`;
+				}
+				return JSON.stringify(options.x?.accounts) === '["OpenAI","AnthropicAI"]'
+					? undefined
+					: `options.x is ${JSON.stringify(options.x)}`;
+			}),
+		);
+		await call(
+			'monitor.update (empty Reddit Subreddits stops watching)',
+			monitor({ operation: 'update', updateFields: { redditSubreddits: '' } }),
+			one((item) => {
+				const reddit = ((item.options ?? {}) as Record<string, IDataObject>).reddit;
+				return ((reddit?.subreddits as unknown[] | undefined) ?? []).length === 0
+					? undefined
+					: `options.reddit is ${JSON.stringify(reddit)}`;
+			}),
+		);
+		await call(
+			'item.getAll (source tiktok)',
+			{ resource: 'item', operation: 'getAll', monitorId, itemFilters: { source: 'tiktok' } },
+			() => undefined,
+			(items) => `${items.length} items`,
+		);
+	} finally {
+		await call(
+			'monitor.delete (accounts)',
+			monitor({ operation: 'delete' }),
+			one((item) => (item.deleted === true ? undefined : 'not deleted')),
+		);
+	}
+}
+
 line(`Base URL: ${baseUrl}`);
 await run();
+await accounts();
 line(`${totals.requests} requests (Monitors routes are free)`);
-line(`${totals.pass} passed, ${totals.fail} failed`);
+line(`${totals.pass} passed, ${totals.fail} failed, ${totals.skip} skipped`);
 process.exit(totals.fail > 0 ? 1 : 0);

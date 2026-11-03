@@ -140,6 +140,7 @@ export const itemOperations: INodeProperties = {
 const sourceOptions = [
 	{ name: 'Reddit', value: 'reddit' },
 	{ name: 'Threads', value: 'threads' },
+	{ name: 'TikTok', value: 'tiktok' },
 	{ name: 'Web', value: 'web' },
 	{ name: 'X', value: 'x' },
 	{ name: 'YouTube', value: 'youtube' },
@@ -209,7 +210,8 @@ const minScoreField: INodeProperties = {
 	type: 'number',
 	typeOptions: { minValue: 0, maxValue: 100 },
 	default: 60,
-	description: 'Relevance (0 to 100) an item needs to be kept',
+	description:
+		'Relevance (0 to 100) an item needs to be kept. 0 keeps every new post, for example from watched accounts.',
 };
 
 const nameField: INodeProperties = {
@@ -304,6 +306,66 @@ const xMinLikesField: INodeProperties = {
 	description: 'Only X posts with at least this many likes',
 };
 
+// With watched accounts, the query and criteria still decide what is kept.
+const ACCOUNTS_NOTE =
+	"The query and criteria still decide which posts are kept; Min Score 0 keeps every new one. Kept items have data.account, and an account that cannot be read is listed in the run's stats.sources.<source>.accounts_failed.";
+
+const redditSubredditsField: INodeProperties = {
+	displayName: 'Reddit Subreddits',
+	name: 'redditSubreddits',
+	type: 'string',
+	default: '',
+	placeholder: 'e.g. LocalLLaMA, r/MachineLearning',
+	description: `Up to 10 subreddits to watch, separated by commas or new lines (LocalLLaMA, r/LocalLLaMA or a subreddit URL). Reddit then reads each one's newest posts instead of searching ($0.00207 a subreddit per run). ${ACCOUNTS_NOTE}`,
+};
+
+const tiktokAccountsField: INodeProperties = {
+	displayName: 'TikTok Accounts',
+	name: 'tiktokAccounts',
+	type: 'string',
+	default: '',
+	placeholder: 'e.g. openai, @duolingo',
+	description: `Up to 10 TikTok usernames to watch, separated by commas or new lines (openai, @openai or a profile URL). TikTok then reads TikTok Posts per Run newest posts of each account instead of searching. ${ACCOUNTS_NOTE}`,
+};
+
+const tiktokCountField: INodeProperties = {
+	displayName: 'TikTok Posts per Run',
+	name: 'tiktokCount',
+	type: 'options',
+	options: [
+		{ name: '10', value: 10 },
+		{ name: '20', value: 20 },
+		{ name: '30', value: 30 },
+	],
+	default: 10,
+	description:
+		'Posts each run reads from TikTok, per account when it watches accounts ($0.00207 a post)',
+};
+
+const xAccountsField: INodeProperties = {
+	displayName: 'X Accounts',
+	name: 'xAccounts',
+	type: 'string',
+	default: '',
+	placeholder: 'e.g. OpenAI, @AnthropicAI',
+	description: `Up to 10 X usernames to watch, separated by commas or new lines (OpenAI, @OpenAI or an x.com URL). X then reads each account's timeline instead of searching (20 posts, about $0.003 an account per run), so X Posts per Run is not used; X Language and X Min Likes still filter. ${ACCOUNTS_NOTE}`,
+};
+
+const youtubeChannelsField: INodeProperties = {
+	displayName: 'YouTube Channels',
+	name: 'youtubeChannels',
+	type: 'string',
+	default: '',
+	placeholder: 'e.g. @OpenAI, UCXZCJLdBC09xxGZ6gcdrc6A',
+	description: `Up to 10 channels to watch, separated by commas or new lines (@handle, a UC… channel ID or a channel URL). YouTube then reads each channel's latest videos instead of searching ($0.00207 a channel per run). ${ACCOUNTS_NOTE}`,
+};
+
+/** An account field in Update Fields, where set but empty stops watching. */
+const stopWatching = (field: INodeProperties): INodeProperties => ({
+	...field,
+	description: `${field.description} Empty stops watching them.`,
+});
+
 const sourcesField = (operations: string[]): INodeProperties => ({
 	displayName: 'Sources',
 	name: 'sources',
@@ -335,7 +397,7 @@ const createFields: INodeProperties[] = [
 		typeOptions: { rows: 2 },
 		placeholder: 'e.g. Bittensor subnet launches and updates',
 		description:
-			'What to watch, in plain words (3 to 500 characters). Each source is searched with it.',
+			'What to watch, in plain words (3 to 500 characters). Each source is searched with it; with watched accounts, it decides which of their posts are kept.',
 		displayOptions: showFor(['monitor'], ['create']),
 	},
 	sourcesField(['create', 'estimate']),
@@ -352,6 +414,7 @@ const createFields: INodeProperties[] = [
 			metadataField,
 			minScoreField,
 			nameField,
+			redditSubredditsField,
 			{
 				displayName: 'Run Now',
 				name: 'runNow',
@@ -360,12 +423,16 @@ const createFields: INodeProperties[] = [
 				description: 'Whether to queue the first run at once instead of waiting for the schedule',
 			},
 			summaryField,
+			tiktokAccountsField,
+			tiktokCountField,
 			webCountField,
 			webhookEventsField,
 			webhookUrlField,
+			xAccountsField,
 			xLangField,
 			xMinLikesField,
 			xCountField,
+			youtubeChannelsField,
 		],
 	},
 	{
@@ -375,7 +442,17 @@ const createFields: INodeProperties[] = [
 		placeholder: 'Add Option',
 		default: {},
 		displayOptions: showFor(['monitor'], ['estimate']),
-		options: [summaryField, webCountField, xCountField],
+		// What changes the cost of a run.
+		options: [
+			redditSubredditsField,
+			summaryField,
+			tiktokAccountsField,
+			tiktokCountField,
+			webCountField,
+			xAccountsField,
+			xCountField,
+			youtubeChannelsField,
+		],
 	},
 ];
 
@@ -432,6 +509,7 @@ const updateFields: INodeProperties[] = [
 				typeOptions: { rows: 2 },
 				description: 'What to watch, in plain words (3 to 500 characters)',
 			},
+			stopWatching(redditSubredditsField),
 			{
 				displayName: 'Remove Webhook',
 				name: 'removeWebhook',
@@ -457,12 +535,16 @@ const updateFields: INodeProperties[] = [
 					'Paused stops scheduled runs (Trigger Run still works). Active resumes them, also after a pause for credits or a failing webhook.',
 			},
 			summaryField,
+			stopWatching(tiktokAccountsField),
+			tiktokCountField,
 			webCountField,
 			webhookEventsField,
 			webhookUrlField,
+			stopWatching(xAccountsField),
 			xLangField,
 			xMinLikesField,
 			xCountField,
+			stopWatching(youtubeChannelsField),
 		],
 	},
 ];

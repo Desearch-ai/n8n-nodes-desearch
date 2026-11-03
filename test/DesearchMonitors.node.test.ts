@@ -84,7 +84,12 @@ const MONITOR = {
 	monitor_id: MONITOR_ID,
 	query: 'Bittensor subnet launches',
 	sources: ['web', 'x'],
-	options: { x: { count: 20, lang: 'en', min_likes: 5 }, web: { count: 10 } },
+	options: {
+		x: { count: 20, lang: 'en', min_likes: 5, accounts: ['OpenAI'] },
+		web: { count: 10 },
+		reddit: { subreddits: ['LocalLLaMA'] },
+		tiktok: { count: 10, accounts: ['openai'] },
+	},
 	webhook: {
 		url: 'https://example.com/hooks/desearch',
 		events: ['monitor.items.found', 'monitor.run.completed'],
@@ -179,6 +184,56 @@ describe('Monitor > Create', () => {
 		});
 	});
 
+	it('sends TikTok and the watched accounts of each source as typed, without duplicates', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'create',
+				query: 'OpenAI announcements',
+				sources: ['x', 'reddit', 'youtube', 'tiktok'],
+				createOptions: {
+					minScore: 0,
+					xAccounts: '@OpenAI, https://x.com/AnthropicAI\n@OpenAI',
+					redditSubreddits: 'r/LocalLLaMA, https://www.reddit.com/r/OpenAI/',
+					youtubeChannels: '@OpenAI\nUCXZCJLdBC09xxGZ6gcdrc6A',
+					tiktokAccounts: '@openai',
+					tiktokCount: 30,
+					xLang: 'en',
+				},
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'OpenAI announcements',
+			sources: ['x', 'reddit', 'youtube', 'tiktok'],
+			interval: '1d',
+			min_score: 0,
+			options: {
+				x: { lang: 'en', accounts: ['@OpenAI', 'https://x.com/AnthropicAI'] },
+				reddit: { subreddits: ['r/LocalLLaMA', 'https://www.reddit.com/r/OpenAI/'] },
+				youtube: { channels: ['@OpenAI', 'UCXZCJLdBC09xxGZ6gcdrc6A'] },
+				tiktok: { count: 30, accounts: ['@openai'] },
+			},
+		});
+	});
+
+	it('leaves empty account fields out of Create', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'create',
+				query: 'OpenAI launches',
+				createOptions: { xAccounts: ' ', tiktokAccounts: '' },
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).not.toHaveProperty('options');
+	});
+
 	it('refuses more than 5 criteria without calling the API', async () => {
 		const { context, httpRequestWithAuthentication } = createExecuteContext({
 			operation: 'create',
@@ -231,6 +286,34 @@ describe('Monitor > Estimate Cost', () => {
 			interval: '1h',
 			options: { x: { count: 100 } },
 			summary: true,
+		});
+	});
+});
+
+describe('Monitor > Estimate Cost with watched accounts', () => {
+	it('sends the accounts and TikTok posts per run, which change the cost', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'estimate',
+				sources: ['x', 'tiktok'],
+				estimateOptions: {
+					xAccounts: 'OpenAI, AnthropicAI',
+					tiktokAccounts: 'openai',
+					tiktokCount: 20,
+				},
+			},
+			{ http: () => response({ max_run_cost_usd: 0.05 }) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			sources: ['x', 'tiktok'],
+			interval: '1d',
+			options: {
+				x: { accounts: ['OpenAI', 'AnthropicAI'] },
+				tiktok: { count: 20, accounts: ['openai'] },
+			},
 		});
 	});
 });
@@ -386,8 +469,64 @@ describe('Monitor > Update', () => {
 
 		expect(requests()).toEqual([`GET ${MONITOR_PATH}`, `PATCH ${MONITOR_PATH}`]);
 		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
-			options: { x: { count: 50, lang: 'en', min_likes: 5 }, web: { count: 10 } },
+			options: {
+				x: { count: 50, lang: 'en', min_likes: 5, accounts: ['OpenAI'] },
+				web: { count: 10 },
+				reddit: { subreddits: ['LocalLLaMA'] },
+				tiktok: { count: 10, accounts: ['openai'] },
+			},
 		});
+	});
+
+	it('merges new watched accounts into the options of each source', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: {
+					youtubeChannels: '@OpenAI',
+					tiktokCount: 20,
+					xAccounts: 'OpenAI, AnthropicAI',
+				},
+			},
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response(MONITOR),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
+			options: {
+				x: { count: 20, lang: 'en', min_likes: 5, accounts: ['OpenAI', 'AnthropicAI'] },
+				web: { count: 10 },
+				reddit: { subreddits: ['LocalLLaMA'] },
+				youtube: { channels: ['@OpenAI'] },
+				tiktok: { count: 20, accounts: ['openai'] },
+			},
+		});
+	});
+
+	it("stops watching a source's accounts when its field is set but empty", async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{ operation: 'update', monitorId: MONITOR_ID, updateFields: { redditSubreddits: '' } },
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response(MONITOR),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(
+			((sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject).options as IDataObject)
+				.reddit,
+		).toEqual({ subreddits: [] });
 	});
 
 	it('keeps the webhook events when only the URL changes', async () => {
@@ -649,6 +788,26 @@ describe('Item > Get Many', () => {
 			`GET ${MONITOR_PATH}/items?source=youtube&limit=200`,
 			`GET ${MONITOR_PATH}/items?source=youtube&limit=50&cursor=1642`,
 		]);
+	});
+
+	it('filters by the TikTok source', async () => {
+		const { context, requests } = createExecuteContext(
+			{
+				resource: 'item',
+				operation: 'getAll',
+				monitorId: MONITOR_ID,
+				itemFilters: { source: 'tiktok' },
+			},
+			{
+				http: () =>
+					response({ items: [{ item_id: '9', data: { account: 'openai' } }], next_cursor: null }),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json.data).toEqual({ account: 'openai' });
+		expect(requests()).toEqual([`GET ${MONITOR_PATH}/items?source=tiktok&limit=50`]);
 	});
 
 	it('sends no source by default', async () => {

@@ -440,6 +440,21 @@ export const socialFields: INodeProperties[] = [
 		displayOptions: show(['tiktok'], ['search']),
 		options: [
 			{
+				displayName: 'Date Posted',
+				name: 'datePosted',
+				type: 'options',
+				options: [
+					{ name: 'All Time', value: 'all-time' },
+					{ name: 'Last 3 Months', value: 'last-3-months' },
+					{ name: 'Last 6 Months', value: 'last-6-months' },
+					{ name: 'This Month', value: 'this-month' },
+					{ name: 'This Week', value: 'this-week' },
+					{ name: 'Yesterday', value: 'yesterday', description: 'The last 24 hours' },
+				],
+				default: 'this-week',
+				description: 'Only videos posted in this time frame',
+			},
+			{
 				displayName: 'Sort',
 				name: 'sort',
 				type: 'string',

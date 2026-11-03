@@ -227,7 +227,7 @@ export class DesearchMonitors implements INodeType {
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
 		description:
-			'Searches over the web, X, Reddit, YouTube and Threads that run on a schedule and keep only what is new',
+			'Searches over the web, X, Reddit, YouTube, Threads and TikTok that run on a schedule and keep only what is new',
 		defaults: {
 			name: 'Desearch Monitors',
 		},

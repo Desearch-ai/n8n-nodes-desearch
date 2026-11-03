@@ -40,7 +40,7 @@ Pick a **Resource**, then an **Operation**.
 
 For Get Retweeters and Get User Posts, put the `next_cursor` of a page in **Cursor** to get the next page.
 
-**TikTok** resource: **Search** (`POST /desearch/tiktok/search`), **Get Post** (`GET /desearch/tiktok/post/{id}`), **Get Profile** (`GET /desearch/tiktok/profile/{username}`), **Get Profile Posts** (`GET /desearch/tiktok/profile/{username}/posts`), **Get Comments** (`GET /desearch/tiktok/comments/{video_id}`), **Get Hashtag Posts** (`GET /desearch/tiktok/hashtag/{tag}`) and **Get Trending** for a region (`GET /desearch/tiktok/trending`).
+**TikTok** resource: **Search** (`POST /desearch/tiktok/search`; **Options > Date Posted** keeps only videos from yesterday, this week, this month, the last 3 or 6 months, or all time), **Get Post** (`GET /desearch/tiktok/post/{id}`), **Get Profile** (`GET /desearch/tiktok/profile/{username}`), **Get Profile Posts** (`GET /desearch/tiktok/profile/{username}/posts`), **Get Comments** (`GET /desearch/tiktok/comments/{video_id}`), **Get Hashtag Posts** (`GET /desearch/tiktok/hashtag/{tag}`) and **Get Trending** for a region (`GET /desearch/tiktok/trending`).
 
 **Facebook** resource: **Search Ad Library**, public Meta Ad Library records by keyword (`POST /desearch/facebook/search`), **Get Post** (`GET /desearch/facebook/post/{id}`), **Get Profile** of a profile or page (`GET /desearch/facebook/profile/{profile_id}`), **Get Profile Posts** (`GET /desearch/facebook/profile/{profile_id}/posts`), **Get Comments**, about 10 a page (`GET /desearch/facebook/comments/{post_id}`) and **Get Hashtag Posts**, Ad Library records for a keyword or hashtag (`GET /desearch/facebook/hashtag/{tag}`).
 
@@ -124,11 +124,11 @@ A typical workflow is **Company Search > Start**, then **Company Search > Get Re
 
 ### Desearch Monitors
 
-A monitor is a search that runs on a schedule (every hour to every week) over the web, X, Reddit, YouTube and Threads and keeps only what is new: each run searches from where the previous run ended, drops everything the monitor has already seen and screens the rest for relevance, so you get new posts, pages and videos about what you watch, for example "Bittensor subnet launches and updates". New items go to your webhook and stay readable here. See the [Monitors guide](https://www.desearch.ai/docs/guide/apis/monitors).
+A monitor is a search that runs on a schedule (every hour to every week) over the web, X, Reddit, YouTube, Threads and TikTok and keeps only what is new: each run searches from where the previous run ended, drops everything the monitor has already seen and screens the rest for relevance, so you get new posts, pages and videos about what you watch, for example "Bittensor subnet launches and updates". New items go to your webhook and stay readable here. See the [Monitors guide](https://www.desearch.ai/docs/guide/apis/monitors).
 
 **Monitor** resource:
 
-- **Create**: create a monitor (`POST /desearch/monitors`) from a **Query**, its **Sources** and **Interval** (1h, 3h, 6h, 12h, 1d or 7d). Options: a name, up to 5 **Criteria** (one per line) an item must meet, **Min Score** (0 to 100, default 60), a **Summary** of each run, pages per run from the web (10, 15 or 20), X posts per run (1 to 100), X language and minimum likes, a **Webhook URL** and its events, metadata labels, and **Run Now** (on by default: the first run is queued at once). With a webhook, the output has `webhook_secret`, returned only here: keep it to check the `Desearch-Signature` header of each delivery.
+- **Create**: create a monitor (`POST /desearch/monitors`) from a **Query**, its **Sources** and **Interval** (1h, 3h, 6h, 12h, 1d or 7d). Options: a name, up to 5 **Criteria** (one per line) an item must meet, **Min Score** (0 to 100, default 60), a **Summary** of each run, pages per run from the web (10, 15 or 20), X posts per run (1 to 100), X language and minimum likes, TikTok posts per run (10, 20 or 30), watched accounts (below), a **Webhook URL** and its events, metadata labels, and **Run Now** (on by default: the first run is queued at once). With a webhook, the output has `webhook_secret`, returned only here: keep it to check the `Desearch-Signature` header of each delivery.
 - **Estimate Cost**: the most one run and one month of runs can cost for given sources, interval and options (`POST /desearch/monitors/estimate`).
 - **Get**: settings, status, last run and totals (`GET /desearch/monitors/{monitor_id}`).
 - **Get Many**: your monitors, newest first, filtered by status (`GET /desearch/monitors`).
@@ -137,6 +137,10 @@ A monitor is a search that runs on a schedule (every hour to every week) over th
 - **Trigger Run**: queue a run now, outside the schedule (`POST /desearch/monitors/{monitor_id}/trigger`). It fails with 409 while a run is queued or running.
 - **Test Webhook**: send a signed `monitor.test` event to the webhook and see what your endpoint answered (`POST /desearch/monitors/{monitor_id}/webhook/test`).
 - **Rotate Webhook Secret**: a new signing secret, returned once (`POST /desearch/monitors/{monitor_id}/webhook/rotate-secret`).
+
+**Watched accounts.** Instead of searching by keyword, a source can watch up to 10 accounts, separated by commas or new lines: **X Accounts** (`OpenAI`, `@OpenAI` or an x.com URL), **Reddit Subreddits** (`LocalLLaMA`, `r/LocalLLaMA` or a URL), **YouTube Channels** (`@handle`, a `UC…` channel ID or a channel URL) and **TikTok Accounts** (`openai`, `@openai` or a profile URL). Each run then reads every account's newest posts, and the query and criteria still decide which are kept; set **Min Score** to 0 to keep every new post. With X accounts, X Posts per Run is not used (a timeline is 20 posts) and X Language and X Min Likes still filter; with TikTok accounts, TikTok Posts per Run is read from each account. The API returns the names cleaned (`OpenAI`, `LocalLLaMA`, `@OpenAI` or `UC…`, `openai`) and fails with a 422 on a name it cannot read. In Update, a watched-accounts field that is set but empty stops watching that source's accounts. An item read from a watched account has `data.account`, and an account that could not be read in a run is listed in its `stats.sources.<source>.accounts_failed`.
+
+Item `data` holds the source's fields: X `likes`, `reposts`, `replies`, `views`; Reddit `subreddit`, `score`, `comments`; YouTube `channel`, `views`, `thumbnail`; TikTok `views`, `likes`, `comments`, `shares`, `duration_s`, `thumbnail` (TikTok thumbnail URLs expire); web `highlights`, `domain`.
 
 **Run** resource:
 
@@ -149,7 +153,7 @@ A monitor is a search that runs on a schedule (every hour to every week) over th
 
 A typical workflow is **Monitor > Create** once, then a Webhook node that receives its deliveries. To try a monitor right away, use **Monitor > Trigger Run**, then **Run > Get** with Monitor ID `{{ $json.monitor_id }}`, Run ID `{{ $json.run_id }}` and Wait for Completion on.
 
-**Billing.** Every Monitors operation is free. Each run is billed for what it used: its searches at their list price, screening per item and, with Summary on, the LLM usage plus 50% ([prices](https://desearch.ai/pricing)). A run with no new items still pays for its searches. While a run is going, its maximum cost (`max_run_cost_usd`) is held on your balance; a monitor whose run cannot be held pauses with `paused_reason` `insufficient_credits`.
+**Billing.** Every Monitors operation is free. Each run is billed for what it used: its searches at their list price, screening per item and, with Summary on, the LLM usage plus 50% ([prices](https://desearch.ai/pricing)). A watched account is one feed read per run: an X timeline is about $0.003 (20 posts), a subreddit or YouTube channel $0.00207, and TikTok $0.00207 a post (search or account). A run with no new items still pays for its searches. While a run is going, its maximum cost (`max_run_cost_usd`) is held on your balance; a monitor whose run cannot be held pauses with `paused_reason` `insufficient_credits`.
 
 All four nodes can also be used as tools by AI Agent nodes and use the same **Desearch API** credential.
 
