@@ -1,6 +1,6 @@
 # n8n-nodes-desearch
 
-AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data, page extraction, people search and company search for AI agents.
+AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data, page extraction, people search, company search and monitors for AI agents.
 
 This is an n8n community node for the [Desearch API](https://desearch.ai). It calls the Desearch REST API directly and has no runtime dependencies.
 
@@ -122,7 +122,36 @@ A typical workflow is **Company Search > Start**, then **Company Search > Get Re
 
 **Billing.** Only Start is billed. Company Search reserves `count` companies and Company Enrich one company per domain, at the route's per-company price ([prices](https://desearch.ai/pricing)). When the task ends you pay only for the companies it delivered, with a minimum of 2 (Company Search) or 1 (Company Enrich) when it delivers any; a task that delivers none is free, and a company left out by Min Score or Must Have is not billed. Every other operation is free. As with People Search, set an **Idempotency Key** when you turn on **Retry On Fail** for Start.
 
-All three nodes can also be used as tools by AI Agent nodes and use the same **Desearch API** credential.
+### Desearch Monitors
+
+A monitor is a search that runs on a schedule (every hour to every week) over the web, X, Reddit, YouTube and Threads and keeps only what is new: each run searches from where the previous run ended, drops everything the monitor has already seen and screens the rest for relevance, so you get new posts, pages and videos about what you watch, for example "Bittensor subnet launches and updates". New items go to your webhook and stay readable here. See the [Monitors guide](https://www.desearch.ai/docs/guide/apis/monitors).
+
+**Monitor** resource:
+
+- **Create**: create a monitor (`POST /desearch/monitors`) from a **Query**, its **Sources** and **Interval** (1h, 3h, 6h, 12h, 1d or 7d). Options: a name, up to 5 **Criteria** (one per line) an item must meet, **Min Score** (0 to 100, default 60), a **Summary** of each run, pages per run from the web (10, 15 or 20), X posts per run (1 to 100), X language and minimum likes, a **Webhook URL** and its events, metadata labels, and **Run Now** (on by default: the first run is queued at once). With a webhook, the output has `webhook_secret`, returned only here: keep it to check the `Desearch-Signature` header of each delivery.
+- **Estimate Cost**: the most one run and one month of runs can cost for given sources, interval and options (`POST /desearch/monitors/estimate`).
+- **Get**: settings, status, last run and totals (`GET /desearch/monitors/{monitor_id}`).
+- **Get Many**: your monitors, newest first, filtered by status (`GET /desearch/monitors`).
+- **Update**: change any setting, or set **Status** to Paused or Active (`PATCH /desearch/monitors/{monitor_id}`). The API replaces the per-source options and the webhook as a whole, so when you change one of them the node reads the monitor first and keeps the rest. A new webhook URL gets a new `webhook_secret`; **Remove Webhook** removes it.
+- **Delete**: stop a monitor for good (`DELETE /desearch/monitors/{monitor_id}`).
+- **Trigger Run**: queue a run now, outside the schedule (`POST /desearch/monitors/{monitor_id}/trigger`). It fails with 409 while a run is queued or running.
+- **Test Webhook**: send a signed `monitor.test` event to the webhook and see what your endpoint answered (`POST /desearch/monitors/{monitor_id}/webhook/test`).
+- **Rotate Webhook Secret**: a new signing secret, returned once (`POST /desearch/monitors/{monitor_id}/webhook/rotate-secret`).
+
+**Run** resource:
+
+- **Get**: one run with the items it kept, most relevant first (`GET /desearch/monitors/{monitor_id}/runs/{run_id}`). With **Wait for Completion** on, the node checks the run every **Poll Interval** seconds until it ends, and fails if it failed or is still going after **Timeout**. Set **Output** to Kept Items to get one output item per kept item.
+- **Get Many**: a monitor's runs, newest first, with what each source returned and the cost (`GET /desearch/monitors/{monitor_id}/runs`).
+
+**Item** resource:
+
+- **Get Many**: everything a monitor kept, newest first, optionally from one source (`GET /desearch/monitors/{monitor_id}/items`).
+
+A typical workflow is **Monitor > Create** once, then a Webhook node that receives its deliveries. To try a monitor right away, use **Monitor > Trigger Run**, then **Run > Get** with Monitor ID `{{ $json.monitor_id }}`, Run ID `{{ $json.run_id }}` and Wait for Completion on.
+
+**Billing.** Every Monitors operation is free. Each run is billed for what it used: its searches at their list price, screening per item and, with Summary on, the LLM usage plus 50% ([prices](https://desearch.ai/pricing)). A run with no new items still pays for its searches. While a run is going, its maximum cost (`max_run_cost_usd`) is held on your balance; a monitor whose run cannot be held pauses with `paused_reason` `insufficient_credits`.
+
+All four nodes can also be used as tools by AI Agent nodes and use the same **Desearch API** credential.
 
 ## Development
 
@@ -145,6 +174,12 @@ DESEARCH_API_KEY=... npm run e2e -- --with-people
 ```bash
 DESEARCH_API_KEY=... npm run e2e:yrt
 npm run e2e:yrt -- --base-url https://api-dev.desearch.ai --key-env DESEARCH_DEV_API_KEY
+```
+
+`scripts/e2e-monitors.mts` (`npm run e2e:monitors`) runs every Desearch Monitors operation but Trigger Run against a live API: it estimates, creates a monitor that never runs (Run Now off, then paused), reads, lists, updates, sends a test webhook event, rotates the secret and deletes the monitor. It is free, takes the same `--base-url` and `--key-env`, and always deletes what it created:
+
+```bash
+npm run e2e:monitors -- --base-url https://api-dev.desearch.ai --key-env DESEARCH_DEV_API_KEY
 ```
 
 ## Credentials

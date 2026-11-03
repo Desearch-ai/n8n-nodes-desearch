@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- New **Desearch Monitors** node (`/desearch/monitors/*`), with the same Desearch API credential. A monitor reruns a search over the web, X, Reddit, YouTube and Threads every 1 hour to 7 days and keeps only new items that pass relevance screening. Every route is free; each run is billed for its searches, screening and optional summary.
+- **Monitor** resource: Create, Estimate Cost, Get, Get Many (status filter), Update (any field, pause and resume, remove the webhook), Delete, Trigger Run, Test Webhook and Rotate Webhook Secret. Create takes the query, sources, interval, criteria (one per line, up to 5), min score, summary, per-source options (web pages per run; X posts per run, language and minimum likes), webhook URL and events, metadata labels and Run Now.
+- Update keeps what it does not change: the API replaces the per-source options and the webhook as a whole, so changing one option, only the webhook URL or only its events reads the monitor first and sends the rest unchanged.
+- **Run** resource: Get (optionally waiting until the run ends, and outputting one item per kept item) and Get Many. **Item** resource: Get Many, optionally from one source. Lists follow `next_cursor` with Return All and Limit.
+- `scripts/e2e-monitors.mts` (`npm run e2e:monitors`): free smoke test of every operation but Trigger Run against a live API, with `--base-url` and `--key-env`.
+
 ## 0.4.0
 
 Full API coverage in the **Desearch** node, plus YouTube, Reddit and Threads. Company Search (0.3.0) is unchanged.

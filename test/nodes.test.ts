@@ -10,7 +10,14 @@ import { describe, expect, it } from 'vitest';
 import pkg from '../package.json';
 import { SOCIAL_ROUTES } from '../nodes/Desearch/GenericFunctions';
 import { PEOPLE_SEARCH_FILTERS } from '../nodes/DesearchPeopleSearch/GenericFunctions';
-import { companyNode, nodeParameters, peopleNode, searchNode, withDefaults } from './helpers';
+import {
+	companyNode,
+	monitorsNode,
+	nodeParameters,
+	peopleNode,
+	searchNode,
+	withDefaults,
+} from './helpers';
 
 const withSearchDefaults = (parameters: INodeParameters) => nodeParameters(searchNode, parameters);
 
@@ -29,6 +36,7 @@ describe.each([
 	['Desearch', searchNode.description],
 	['Desearch People Search', peopleNode.description],
 	['Desearch Company Search', companyNode.description],
+	['Desearch Monitors', monitorsNode.description],
 ])('%s node description', (_name, description: INodeTypeDescription) => {
 	// n8n runs structuredClone() on the description of every node that is usable as
 	// an AI tool when it loads nodes; a function anywhere in it stops n8n from starting.
@@ -40,23 +48,25 @@ describe.each([
 });
 
 describe('package registration', () => {
-	it('registers the three nodes and the credential', () => {
+	it('registers the four nodes and the credential', () => {
 		expect(pkg.n8n.nodes).toEqual([
 			'dist/nodes/Desearch/Desearch.node.js',
 			'dist/nodes/DesearchPeopleSearch/DesearchPeopleSearch.node.js',
 			'dist/nodes/DesearchCompanySearch/DesearchCompanySearch.node.js',
+			'dist/nodes/DesearchMonitors/DesearchMonitors.node.js',
 		]);
 		expect(pkg.n8n.credentials).toEqual(['dist/credentials/DesearchApi.credentials.js']);
 		expect('dependencies' in pkg).toBe(false);
 	});
 
 	it('uses the shared Desearch credential and icons', () => {
-		for (const { description } of [peopleNode, companyNode]) {
+		for (const { description } of [peopleNode, companyNode, monitorsNode]) {
 			expect(description.credentials).toEqual([{ name: 'desearchApi', required: true }]);
 			expect(description.icon).toEqual(searchNode.description.icon);
 		}
 		expect(peopleNode.description.name).toBe('desearchPeopleSearch');
 		expect(companyNode.description.name).toBe('desearchCompanySearch');
+		expect(monitorsNode.description.name).toBe('desearchMonitors');
 	});
 });
 
@@ -375,6 +385,128 @@ describe('Desearch Company Search node parameters', () => {
 			'operation',
 			'domains',
 			'enrichOptions',
+		]);
+	});
+
+	it('lists every option in alphabetical order, as n8n shows them', () => {
+		const collections = properties.filter((p) => p.type === 'collection');
+		for (const collection of collections) {
+			const names = (collection.options as INodeProperties[]).map((o) => o.displayName);
+			expect(names, collection.name).toEqual([...names].sort());
+		}
+	});
+});
+
+describe('Desearch Monitors node parameters', () => {
+	const { properties } = monitorsNode.description;
+	const optionValues = (resource: string) =>
+		(
+			properties.find(
+				(p) => p.name === 'operation' && p.displayOptions?.show?.resource?.includes(resource),
+			)?.options as INodePropertyOptions[]
+		).map((o) => o.value);
+	const shown = (parameters: Record<string, unknown>) =>
+		properties
+			.filter((property) =>
+				NodeHelpers.displayParameter(
+					withDefaults(parameters as never, monitorsNode),
+					property,
+					{ typeVersion: 1 },
+					monitorsNode.description,
+				),
+			)
+			.map((property) => property.name);
+
+	it('has an operation for every Monitors route', () => {
+		expect(
+			(properties.find((p) => p.name === 'resource')?.options as INodePropertyOptions[]).map(
+				(o) => o.value,
+			),
+		).toEqual(['item', 'monitor', 'run']);
+		expect(optionValues('monitor')).toEqual([
+			'create',
+			'delete',
+			'estimate',
+			'get',
+			'getAll',
+			'rotateWebhookSecret',
+			'testWebhook',
+			'trigger',
+			'update',
+		]);
+		expect(optionValues('run')).toEqual(['get', 'getAll']);
+		expect(optionValues('item')).toEqual(['getAll']);
+	});
+
+	it('has the documented defaults', () => {
+		expect(withDefaults({ query: 'OpenAI launches' }, monitorsNode)).toMatchObject({
+			resource: 'monitor',
+			operation: 'create',
+			sources: ['web', 'x'],
+			interval: '1d',
+			createOptions: {},
+		});
+		expect(
+			withDefaults(
+				{ resource: 'run', operation: 'get', monitorId: 'm', runId: 'r', waitForCompletion: true },
+				monitorsNode,
+			),
+		).toMatchObject({ timeout: 300, pollInterval: 10, output: 'run' });
+		expect(withDefaults({ resource: 'item', monitorId: 'm' }, monitorsNode)).toMatchObject({
+			operation: 'getAll',
+			returnAll: false,
+			limit: 50,
+			itemFilters: {},
+		});
+	});
+
+	it('shows each operation only its own fields', () => {
+		expect(shown({ operation: 'create' })).toEqual([
+			'resource',
+			'operation',
+			'query',
+			'sources',
+			'interval',
+			'createOptions',
+		]);
+		expect(shown({ operation: 'estimate' })).toEqual([
+			'resource',
+			'operation',
+			'sources',
+			'interval',
+			'estimateOptions',
+		]);
+		expect(shown({ operation: 'update' })).toEqual([
+			'resource',
+			'operation',
+			'monitorId',
+			'updateFields',
+		]);
+		expect(shown({ operation: 'getAll' })).toEqual([
+			'resource',
+			'operation',
+			'returnAll',
+			'limit',
+			'monitorFilters',
+		]);
+		for (const operation of ['delete', 'get', 'rotateWebhookSecret', 'testWebhook', 'trigger']) {
+			expect(shown({ operation }), operation).toEqual(['resource', 'operation', 'monitorId']);
+		}
+		expect(shown({ resource: 'run', operation: 'get' })).toEqual([
+			'resource',
+			'operation',
+			'monitorId',
+			'runId',
+			'waitForCompletion',
+			'output',
+		]);
+		expect(shown({ resource: 'item', operation: 'getAll' })).toEqual([
+			'resource',
+			'operation',
+			'monitorId',
+			'returnAll',
+			'limit',
+			'itemFilters',
 		]);
 	});
 
