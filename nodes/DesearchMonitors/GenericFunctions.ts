@@ -16,7 +16,17 @@ import { isSet } from '../shared/transport';
  * item and the summary's LLM usage). Same credential and errors as People Search.
  */
 
-export const MONITOR_SOURCES = ['web', 'x', 'reddit', 'youtube', 'threads', 'tiktok'] as const;
+export const MONITOR_SOURCES = [
+	'web',
+	'x',
+	'reddit',
+	'youtube',
+	'threads',
+	'tiktok',
+	'instagram',
+	'facebook',
+	'meta_ads',
+] as const;
 
 export const MONITOR_INTERVALS = ['1h', '3h', '6h', '12h', '1d', '7d'] as const;
 
@@ -33,13 +43,17 @@ export const MONITOR_CRITERIA_MAX = 5;
  * Watched-account fields: node field -> [source, API option]. With accounts (up to 10 per
  * source), a source reads their newest posts instead of searching. Names go to the API as
  * typed; it cleans them (`@OpenAI` or a profile URL becomes `OpenAI`) and returns 422 for a
- * name it cannot read.
+ * name it cannot read. Instagram and Facebook only watch accounts: the API returns 422 for a
+ * monitor with either source and none of its accounts or pages.
  */
 const ACCOUNT_FIELDS: Record<string, [string, string]> = {
 	xAccounts: ['x', 'accounts'],
 	redditSubreddits: ['reddit', 'subreddits'],
 	youtubeChannels: ['youtube', 'channels'],
 	tiktokAccounts: ['tiktok', 'accounts'],
+	threadsAccounts: ['threads', 'accounts'],
+	instagramAccounts: ['instagram', 'accounts'],
+	facebookPages: ['facebook', 'pages'],
 };
 
 /** Largest `limit` each monitor list accepts. */
@@ -87,7 +101,8 @@ function sourceList(node: INode, itemIndex: number, value: unknown): string[] {
 	if (sources.length === 0) {
 		throw new NodeOperationError(node, 'Sources is empty', {
 			itemIndex,
-			description: 'Pick at least one of Web, X, Reddit, YouTube and Threads.',
+			description:
+				'Pick at least one of Web, X, Reddit, YouTube, Threads, TikTok, Instagram, Facebook and Meta Ads.',
 		});
 	}
 	return sources;
@@ -96,8 +111,9 @@ function sourceList(node: INode, itemIndex: number, value: unknown): string[] {
 /**
  * The API's per-source `options` from the node's flat option fields, or undefined when none
  * is set: `web.count`; `x.count`, `x.lang`, `x.min_likes`, `x.accounts`; `reddit.subreddits`;
- * `youtube.channels`; `tiktok.count`, `tiktok.accounts`. Threads takes none. An account field
- * that is set but empty is sent as `[]` with `clearEmpty` (Update: it stops watching them).
+ * `youtube.channels`; `tiktok.count`, `tiktok.accounts`; `threads.accounts`;
+ * `instagram.accounts`; `facebook.pages`; `meta_ads.count`. An account field that is set but
+ * empty is sent as `[]` with `clearEmpty` (Update: it stops watching them).
  */
 export function sourceOptions(
 	fields: IDataObject,
@@ -122,6 +138,9 @@ export function sourceOptions(
 	}
 	if (isSet(fields.tiktokCount)) {
 		set('tiktok', 'count', Number(fields.tiktokCount));
+	}
+	if (isSet(fields.metaAdsCount)) {
+		set('meta_ads', 'count', Number(fields.metaAdsCount));
 	}
 	for (const [field, [source, name]] of Object.entries(ACCOUNT_FIELDS)) {
 		if (fields[field] === undefined) {

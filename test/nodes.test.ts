@@ -203,6 +203,12 @@ describe('Desearch node resources and operations', () => {
 			region: 'US',
 			count: 20,
 		});
+		expect(withSearchDefaults({ resource: 'facebook' })).toMatchObject({
+			operation: 'search',
+			count: 10,
+			cursor: '',
+			options: {},
+		});
 		expect(withSearchDefaults({ resource: 'instagram', operation: 'getComments' })).toMatchObject({
 			count: 20,
 			cursor: '',
@@ -440,18 +446,22 @@ describe('Desearch Monitors node parameters', () => {
 			(properties.find((p) => p.name === name)?.options as INodePropertyOptions[]).map(
 				(o) => o.value,
 			);
-		expect(sources('sources')).toEqual(['reddit', 'threads', 'tiktok', 'web', 'x', 'youtube']);
-		const itemSource = (
-			properties.find((p) => p.name === 'itemFilters')?.options as INodeProperties[]
-		).find((o) => o.name === 'source')?.options as INodePropertyOptions[];
-		expect(itemSource.map((o) => o.value)).toEqual([
+		const all = [
+			'facebook',
+			'instagram',
+			'meta_ads',
 			'reddit',
 			'threads',
 			'tiktok',
 			'web',
 			'x',
 			'youtube',
-		]);
+		];
+		expect(sources('sources')).toEqual(all);
+		const itemSource = (
+			properties.find((p) => p.name === 'itemFilters')?.options as INodeProperties[]
+		).find((o) => o.name === 'source')?.options as INodePropertyOptions[];
+		expect(itemSource.map((o) => o.value)).toEqual(all);
 	});
 
 	it('has the documented defaults', () => {

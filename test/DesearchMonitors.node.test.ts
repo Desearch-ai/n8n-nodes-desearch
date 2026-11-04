@@ -93,9 +93,33 @@ const MONITOR = {
 	webhook: {
 		url: 'https://example.com/hooks/desearch',
 		events: ['monitor.items.found', 'monitor.run.completed'],
-		consecutive_failures: 0,
+		consecutive_failures: 1,
+		last_delivery: {
+			event: 'monitor.items.found',
+			status: 'pending',
+			attempts: 1,
+			status_code: 503,
+			error: 'HTTP 503',
+			created_at: '2026-11-04T09:00:41Z',
+			next_attempt_at: '2026-11-04T09:01:41Z',
+			delivered_at: null,
+		},
 	},
 };
+
+/** A monitor on the sources that watch accounts and pages, and Meta ads. */
+const SOCIAL_MONITOR = {
+	...MONITOR,
+	sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+	options: {
+		instagram: { accounts: ['natgeo'] },
+		facebook: { pages: ['NASA'] },
+		meta_ads: { count: 10 },
+		threads: { accounts: ['zuck'] },
+	},
+};
+
+const INSTAGRAM_422 = 'Instagram watches accounts: add at least one in options.instagram.accounts';
 
 describe('Monitor > Create', () => {
 	it('posts the query, sources, schedule, options and webhook and returns the monitor', async () => {
@@ -219,12 +243,77 @@ describe('Monitor > Create', () => {
 		});
 	});
 
+	it('sends Instagram accounts, Facebook pages, Meta ads per run and Threads accounts as typed', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'create',
+				query: 'ChatGPT',
+				sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+				createOptions: {
+					instagramAccounts: '@natgeo, https://www.instagram.com/openai/',
+					facebookPages: 'NASA\nhttps://www.facebook.com/profile.php?id=100064869009429\nNASA',
+					metaAdsCount: 30,
+					threadsAccounts: '@zuck',
+				},
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'ChatGPT',
+			sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+			interval: '1d',
+			options: {
+				instagram: { accounts: ['@natgeo', 'https://www.instagram.com/openai/'] },
+				facebook: { pages: ['NASA', 'https://www.facebook.com/profile.php?id=100064869009429'] },
+				meta_ads: { count: 30 },
+				threads: { accounts: ['@zuck'] },
+			},
+		});
+	});
+
+	it('leaves Instagram without accounts to the API, which refuses it with a 422', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{ operation: 'create', query: 'National Geographic photos', sources: ['instagram'] },
+			{
+				http: () =>
+					response(
+						{
+							detail: [
+								{ type: 'value_error', loc: ['body'], msg: `Value error, ${INSTAGRAM_422}` },
+							],
+						},
+						422,
+					),
+			},
+		);
+
+		const error = await execute(context).catch((e: unknown) => e);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'National Geographic photos',
+			sources: ['instagram'],
+			interval: '1d',
+		});
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).httpCode).toBe('422');
+		expect((error as NodeApiError).description).toBe(`Value error, ${INSTAGRAM_422}`);
+	});
+
 	it('leaves empty account fields out of Create', async () => {
 		const { context, httpRequestWithAuthentication } = createExecuteContext(
 			{
 				operation: 'create',
 				query: 'OpenAI launches',
-				createOptions: { xAccounts: ' ', tiktokAccounts: '' },
+				createOptions: {
+					xAccounts: ' ',
+					tiktokAccounts: '',
+					instagramAccounts: '',
+					facebookPages: ' \n ',
+					threadsAccounts: '',
+				},
 			},
 			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
 		);
@@ -318,6 +407,53 @@ describe('Monitor > Estimate Cost with watched accounts', () => {
 	});
 });
 
+describe('Monitor > Estimate Cost with Instagram, Facebook, Meta Ads and Threads', () => {
+	it('sends the accounts, pages and Meta ads per run, and outputs the breakdown', async () => {
+		const breakdown = {
+			instagram: 0.04968,
+			facebook: 0.0207,
+			meta_ads: 0.0621,
+			threads: 0.00207,
+			screening: 0.0123,
+		};
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'estimate',
+				sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+				estimateOptions: {
+					instagramAccounts: 'natgeo, openai',
+					facebookPages: 'NASA',
+					metaAdsCount: 30,
+					threadsAccounts: 'zuck',
+				},
+			},
+			{
+				http: () =>
+					response({
+						max_run_cost_usd: 0.14685,
+						runs_per_month: 30,
+						max_monthly_cost_usd: 4.4055,
+						breakdown,
+					}),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json.breakdown).toEqual(breakdown);
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+			interval: '1d',
+			options: {
+				instagram: { accounts: ['natgeo', 'openai'] },
+				facebook: { pages: ['NASA'] },
+				meta_ads: { count: 30 },
+				threads: { accounts: ['zuck'] },
+			},
+		});
+	});
+});
+
 describe('Monitor > Get Many', () => {
 	it('lists monitors with a status filter across pages, one item per monitor', async () => {
 		const pages: Record<string, IDataObject> = {
@@ -378,6 +514,20 @@ describe('Monitor > Get, Delete, Trigger Run, Test Webhook, Rotate Webhook Secre
 
 		expect(output).toEqual([{ json: { ok: operation }, pairedItem: { item: 0 } }]);
 		expect(requests()).toEqual([request]);
+	});
+
+	it("Get outputs the webhook's delivery status as the API returns it", async () => {
+		const { context } = createExecuteContext(
+			{ operation: 'get', monitorId: MONITOR_ID },
+			{ http: () => response(MONITOR) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json.webhook).toEqual(MONITOR.webhook);
+		expect((output[0].json.webhook as IDataObject).last_delivery).toEqual(
+			MONITOR.webhook.last_delivery,
+		);
 	});
 
 	it('URL-encodes the monitor ID', async () => {
@@ -527,6 +677,83 @@ describe('Monitor > Update', () => {
 			((sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject).options as IDataObject)
 				.reddit,
 		).toEqual({ subreddits: [] });
+	});
+
+	it('merges Instagram accounts, Meta ads per run and Threads accounts into the current options', async () => {
+		const { context, httpRequestWithAuthentication, requests } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: {
+					instagramAccounts: 'natgeo\nopenai',
+					metaAdsCount: 20,
+					threadsAccounts: 'zuck, @openai',
+				},
+			},
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(SOCIAL_MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response(SOCIAL_MONITOR),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(requests()).toEqual([`GET ${MONITOR_PATH}`, `PATCH ${MONITOR_PATH}`]);
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
+			options: {
+				instagram: { accounts: ['natgeo', 'openai'] },
+				facebook: { pages: ['NASA'] },
+				meta_ads: { count: 20 },
+				threads: { accounts: ['zuck', '@openai'] },
+			},
+		});
+	});
+
+	it('adds Facebook with its pages in one update', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: { sources: ['web', 'facebook'], facebookPages: 'NASA, 100064869009429' },
+			},
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response(MONITOR),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		const body = sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject;
+		expect(body.sources).toEqual(['web', 'facebook']);
+		expect((body.options as IDataObject).facebook).toEqual({ pages: ['NASA', '100064869009429'] });
+		expect((body.options as IDataObject).x).toEqual(MONITOR.options.x);
+	});
+
+	it('sends empty Instagram Accounts, which the API refuses while Instagram is a source', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{ operation: 'update', monitorId: MONITOR_ID, updateFields: { instagramAccounts: '' } },
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(SOCIAL_MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response({ detail: INSTAGRAM_422 }, 422),
+				}),
+			},
+		);
+
+		const error = await execute(context).catch((e: unknown) => e);
+
+		expect(
+			((sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject).options as IDataObject)
+				.instagram,
+		).toEqual({ accounts: [] });
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).httpCode).toBe('422');
+		expect((error as NodeApiError).description).toBe(INSTAGRAM_422);
 	});
 
 	it('keeps the webhook events when only the URL changes', async () => {
@@ -808,6 +1035,24 @@ describe('Item > Get Many', () => {
 
 		expect(output[0].json.data).toEqual({ account: 'openai' });
 		expect(requests()).toEqual([`GET ${MONITOR_PATH}/items?source=tiktok&limit=50`]);
+	});
+
+	it.each(['instagram', 'facebook', 'meta_ads'])('filters by the %s source', async (source) => {
+		const item = {
+			item_id: 'a1',
+			source,
+			title: 'Try ChatGPT',
+			data: { page: 'OpenAI', active: true, cta: 'Learn more', link: 'https://openai.com' },
+		};
+		const { context, requests } = createExecuteContext(
+			{ resource: 'item', operation: 'getAll', monitorId: MONITOR_ID, itemFilters: { source } },
+			{ http: () => response({ items: [item], next_cursor: null }) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json).toEqual(item);
+		expect(requests()).toEqual([`GET ${MONITOR_PATH}/items?source=${source}&limit=50`]);
 	});
 
 	it('sends no source by default', async () => {

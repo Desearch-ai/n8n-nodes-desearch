@@ -6,8 +6,12 @@
 // webhook events), lists its runs and items, sends a test webhook event, rotates the secret and
 // deletes it, then checks that the deleted monitor is a 404. A second monitor watches accounts on
 // X, Reddit, YouTube and TikTok: it checks that the API returns their names cleaned, that an Update
-// keeps the accounts it does not change, that an empty field stops watching, and that a bad name is
-// a 422. On an API without the TikTok source and watched accounts, that part prints SKIP. One line
+// keeps the accounts it does not change, that an empty field stops watching, and that a bad name
+// (or an X username over 15 characters) is a 422. A third monitor uses Instagram, Facebook, Meta
+// ads and Threads accounts: it checks the estimate's breakdown, the cleaned names, that a fresh
+// webhook has no last_delivery, that Instagram or Facebook without accounts is a 422 on Create and
+// on Update, and that items can be filtered by the new sources. On an API without the TikTok source
+// and watched accounts, or without Instagram, Facebook and Meta ads, that part prints SKIP. One line
 // per call: `PASS name`, `FAIL name: error` or `SKIP name: reason`. The script exits with 1 when any
 // call fails, and always deletes the monitors it created.
 //
@@ -200,22 +204,86 @@ async function call(
 	}
 }
 
-/** Runs one operation that must fail with HTTP `httpCode`; prints PASS or FAIL. */
-async function expectHttpError(name: string, parameters: INodeParameters, httpCode: string) {
+/**
+ * Runs a Create and prints PASS or FAIL like call(). Returns the new monitor whenever the API
+ * created one, also when `check` failed, so that the caller always deletes it.
+ */
+async function createMonitor(
+	name: string,
+	parameters: INodeParameters,
+	check: (item: IDataObject) => string | undefined,
+	detail: (item: IDataObject) => string = () => '',
+): Promise<{ monitorId: string; item: IDataObject } | undefined> {
+	let item: IDataObject;
 	try {
-		await execute(parameters);
+		item = (await execute(parameters)).map((output) => output.json)[0] ?? {};
 	} catch (error) {
-		if ((error as { httpCode?: string }).httpCode === httpCode) {
+		totals.fail++;
+		line(`FAIL ${name}: ${describeError(error)}`);
+		return undefined;
+	}
+	const monitorId = typeof item.monitor_id === 'string' ? item.monitor_id : undefined;
+	const problem = monitorId === undefined ? 'no monitor_id' : check(item);
+	if (problem) {
+		totals.fail++;
+		line(`FAIL ${name}: ${problem}`);
+	} else {
+		totals.pass++;
+		const extra = detail(item);
+		line(`PASS ${name}${extra ? ` (${extra})` : ''}`);
+	}
+	return monitorId === undefined ? undefined : { monitorId, item };
+}
+
+/** Whether `error` is HTTP `httpCode` whose reason (description) contains `reason`. */
+function isHttpError(error: unknown, httpCode: string, reason = ''): boolean {
+	const { httpCode: code, description } = (error ?? {}) as {
+		httpCode?: string;
+		description?: string;
+	};
+	return code === httpCode && String(description ?? '').includes(reason);
+}
+
+/**
+ * Runs one operation that must fail with HTTP `httpCode` (and a reason that contains `reason`);
+ * prints PASS or FAIL. Returns the output when it succeeded instead.
+ */
+async function expectHttpError(
+	name: string,
+	parameters: INodeParameters,
+	httpCode: string,
+	reason = '',
+): Promise<IDataObject[] | undefined> {
+	let items: IDataObject[];
+	try {
+		items = (await execute(parameters)).map((item) => item.json);
+	} catch (error) {
+		if (isHttpError(error, httpCode, reason)) {
 			totals.pass++;
 			line(`PASS ${name}`);
 		} else {
 			totals.fail++;
 			line(`FAIL ${name}: ${describeError(error)}`);
 		}
-		return;
+		return undefined;
 	}
 	totals.fail++;
 	line(`FAIL ${name}: expected HTTP ${httpCode}, got a success`);
+	return items;
+}
+
+/** Runs a Create that must fail with HTTP 422; deletes the monitor if the API created one. */
+async function expectCreateRefused(name: string, parameters: INodeParameters, reason: string) {
+	const created = await expectHttpError(name, parameters, '422', reason);
+	for (const item of created ?? []) {
+		if (typeof item.monitor_id === 'string') {
+			await call(
+				`monitor.delete (${name})`,
+				{ operation: 'delete', monitorId: item.monitor_id },
+				one((output) => (output.deleted === true ? undefined : 'not deleted')),
+			);
+		}
+	}
 }
 
 /** One output item for which `test` returns no problem. */
@@ -225,6 +293,20 @@ const one =
 		items.length === 1 ? test(items[0]) : `expected 1 item, got ${items.length}`;
 
 const WEBHOOK_URL = 'https://example.com/desearch-e2e';
+
+/** `value` with the keys of every object sorted: key order is not part of the contract, at any depth. */
+const sortKeys = (value: unknown): unknown =>
+	value && typeof value === 'object' && !Array.isArray(value)
+		? Object.fromEntries(
+				Object.entries(value as IDataObject)
+					.sort(([a], [b]) => a.localeCompare(b))
+					.map(([key, entry]) => [key, sortKeys(entry)]),
+			)
+		: value;
+
+/** Whether two values are the same JSON, whatever the key order. */
+const sameJson = (a: unknown, b: unknown) =>
+	JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
 
 async function run(): Promise<void> {
 	await call(
@@ -238,7 +320,7 @@ async function run(): Promise<void> {
 		(items) => `max $${items[0].max_run_cost_usd} a run, ${items[0].runs_per_month} runs a month`,
 	);
 
-	const created = await call(
+	const created = await createMonitor(
 		'monitor.create',
 		{
 			operation: 'create',
@@ -254,16 +336,15 @@ async function run(): Promise<void> {
 				runNow: false,
 			},
 		},
-		one((item) => {
-			if (typeof item.monitor_id !== 'string') return 'no monitor_id';
+		(item) => {
 			if (!String(item.webhook_secret ?? '').startsWith('whsec_')) return 'no webhook_secret';
 			return item.next_run_at === undefined ? 'no next_run_at' : undefined;
-		}),
-		(items) => String(items[0].monitor_id),
+		},
+		(item) => String(item.monitor_id),
 	);
 	if (!created) return;
-	const monitorId = String(created[0].monitor_id);
-	const firstSecret = String(created[0].webhook_secret);
+	const { monitorId } = created;
+	const firstSecret = String(created.item.webhook_secret);
 	const monitor = (parameters: INodeParameters) => ({ monitorId, ...parameters });
 
 	try {
@@ -418,6 +499,12 @@ async function accounts(): Promise<void> {
 		{ ...estimate, estimateOptions: { xAccounts: 'not a username!' } },
 		'422',
 	);
+	// X usernames are 1 to 15 characters.
+	await expectHttpError(
+		'monitor.estimate (an X username over 15 characters is a 422)',
+		{ ...estimate, estimateOptions: { xAccounts: 'OpenAI, abcdefghijklmnop' } },
+		'422',
+	);
 
 	let monitorId: string | undefined;
 	try {
@@ -442,23 +529,14 @@ async function accounts(): Promise<void> {
 		).map((output) => output.json);
 		monitorId = String(item.monitor_id);
 		const options = JSON.stringify(item.options);
-		const expected = JSON.stringify({
+		const expected = {
 			x: { count: 20, lang: 'en', accounts: ['OpenAI', 'AnthropicAI'] },
 			reddit: { subreddits: ['LocalLLaMA'] },
 			youtube: { channels: ['@OpenAI'] },
 			tiktok: { count: 20, accounts: ['openai'] },
-		});
-		// Key order is not part of the contract, at any depth (the API returns x as lang, count, accounts).
-		const sortKeys = (value: unknown): unknown =>
-			value && typeof value === 'object' && !Array.isArray(value)
-				? Object.fromEntries(
-						Object.entries(value as IDataObject)
-							.sort(([a], [b]) => a.localeCompare(b))
-							.map(([key, entry]) => [key, sortKeys(entry)]),
-					)
-				: value;
-		const sorted = (text: string) => JSON.stringify(sortKeys(JSON.parse(text)));
-		if (sorted(options) !== sorted(expected)) {
+		};
+		// The API returns x as lang, count, accounts.
+		if (!sameJson(item.options, expected)) {
 			totals.fail++;
 			line(`FAIL monitor.create (TikTok, watched accounts): options are ${options}`);
 		} else {
@@ -478,7 +556,7 @@ async function accounts(): Promise<void> {
 			monitor({ operation: 'update', updateFields: { tiktokCount: 30 } }),
 			one((item) => {
 				const options = (item.options ?? {}) as Record<string, IDataObject>;
-				if (JSON.stringify(options.tiktok) !== '{"count":30,"accounts":["openai"]}') {
+				if (!sameJson(options.tiktok, { count: 30, accounts: ['openai'] })) {
 					return `options.tiktok is ${JSON.stringify(options.tiktok)}`;
 				}
 				return JSON.stringify(options.x?.accounts) === '["OpenAI","AnthropicAI"]'
@@ -511,9 +589,223 @@ async function accounts(): Promise<void> {
 	}
 }
 
+/** Whether `value` is `expected` dollars (to the API's 6 decimals). */
+const usd = (value: unknown, expected: number) =>
+	typeof value === 'number' && Math.abs(value - expected) < 1e-6;
+
+const INSTAGRAM_REASON = 'options.instagram.accounts';
+const FACEBOOK_REASON = 'options.facebook.pages';
+
+/** Instagram, Facebook and Meta ads sources, and Threads accounts (desearch-public-api#644). */
+async function socialSources(): Promise<void> {
+	// Contract prices: an Instagram account is 12 posts ($0.02484), a Facebook page 10 posts
+	// ($0.0207), 30 Meta ads $0.0621 (10 are $0.0207) and a Threads account one request ($0.00207).
+	const estimate = {
+		operation: 'estimate',
+		sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+		interval: '1d',
+		estimateOptions: {
+			instagramAccounts: 'natgeo, openai',
+			facebookPages: 'NASA',
+			metaAdsCount: 30,
+			threadsAccounts: 'zuck',
+		},
+	};
+	const expected: Record<string, number> = {
+		instagram: 0.04968,
+		facebook: 0.0207,
+		meta_ads: 0.0621,
+		threads: 0.00207,
+	};
+	try {
+		const [item] = (await execute(estimate)).map((output) => output.json);
+		const breakdown = (item.breakdown ?? {}) as IDataObject;
+		const wrong = Object.entries(expected)
+			.filter(([source, price]) => !usd(breakdown[source], price))
+			.map(([source, price]) => `${source} ${String(breakdown[source])} (expected ${price})`);
+		if (typeof breakdown.screening !== 'number') wrong.push('no screening');
+		if (wrong.length > 0) {
+			totals.fail++;
+			line(`FAIL monitor.estimate (Instagram, Facebook, Meta ads, Threads): ${wrong.join(', ')}`);
+		} else {
+			totals.pass++;
+			line(
+				`PASS monitor.estimate (Instagram, Facebook, Meta ads, Threads) (breakdown ${JSON.stringify(breakdown)})`,
+			);
+		}
+	} catch (error) {
+		if (withoutAccounts(error)) {
+			totals.skip++;
+			line(
+				`SKIP Instagram, Facebook and Meta ads: this API does not take them (${describeError(error)})`,
+			);
+			return;
+		}
+		totals.fail++;
+		line(`FAIL monitor.estimate (Instagram, Facebook, Meta ads, Threads): ${describeError(error)}`);
+		return;
+	}
+	await call(
+		'monitor.estimate (Instagram without accounts is not checked; 10 Meta ads by default)',
+		{ operation: 'estimate', sources: ['instagram', 'meta_ads'], interval: '1d' },
+		one((item) => {
+			const breakdown = (item.breakdown ?? {}) as IDataObject;
+			return usd(breakdown.meta_ads, 0.0207)
+				? undefined
+				: `breakdown is ${JSON.stringify(breakdown)}`;
+		}),
+	);
+
+	const create = (sources: string[], createOptions: IDataObject = {}) => ({
+		operation: 'create',
+		query: 'ChatGPT',
+		sources,
+		interval: '7d',
+		createOptions: {
+			name: `n8n e2e social ${new Date().toISOString()}`,
+			runNow: false,
+			...createOptions,
+		},
+	});
+	await expectCreateRefused(
+		'monitor.create (Instagram without accounts is a 422)',
+		create(['instagram', 'meta_ads']),
+		INSTAGRAM_REASON,
+	);
+	await expectCreateRefused(
+		'monitor.create (Facebook without pages is a 422)',
+		create(['facebook']),
+		FACEBOOK_REASON,
+	);
+
+	const created = await createMonitor(
+		'monitor.create (Instagram, Facebook, Meta ads, Threads accounts)',
+		create(['instagram', 'facebook', 'meta_ads', 'threads'], {
+			minScore: 0,
+			instagramAccounts: '@natgeo, https://www.instagram.com/openai/',
+			facebookPages:
+				'https://www.facebook.com/NASA, https://www.facebook.com/profile.php?id=100064869009429',
+			metaAdsCount: 20,
+			threadsAccounts: '@zuck\nhttps://www.threads.com/@openai',
+			webhookUrl: WEBHOOK_URL,
+		}),
+		(item) => {
+			const options = {
+				instagram: { accounts: ['natgeo', 'openai'] },
+				facebook: { pages: ['NASA', '100064869009429'] },
+				meta_ads: { count: 20 },
+				threads: { accounts: ['zuck', 'openai'] },
+			};
+			if (!sameJson(item.options, options)) return `options are ${JSON.stringify(item.options)}`;
+			const webhook = (item.webhook ?? {}) as IDataObject;
+			if (!('last_delivery' in webhook) || webhook.last_delivery !== null) {
+				return `webhook.last_delivery is ${JSON.stringify(webhook.last_delivery)}, not null`;
+			}
+			return String(item.webhook_secret ?? '').startsWith('whsec_')
+				? undefined
+				: 'no webhook_secret';
+		},
+		(item) => `names cleaned: ${JSON.stringify(item.options)}`,
+	);
+	if (!created) return;
+	const { monitorId } = created;
+	const monitor = (parameters: INodeParameters) => ({ monitorId, ...parameters });
+
+	try {
+		await call(
+			'monitor.get (a fresh webhook has last_delivery null)',
+			monitor({ operation: 'get' }),
+			one((item) => {
+				const webhook = (item.webhook ?? {}) as IDataObject;
+				return 'last_delivery' in webhook &&
+					webhook.last_delivery === null &&
+					webhook.consecutive_failures === 0
+					? undefined
+					: `webhook is ${JSON.stringify(webhook)}`;
+			}),
+		);
+		await expectHttpError(
+			'monitor.update (empty Instagram Accounts while Instagram is a source is a 422)',
+			monitor({ operation: 'update', updateFields: { instagramAccounts: '' } }),
+			'422',
+			INSTAGRAM_REASON,
+		);
+		await expectHttpError(
+			'monitor.update (empty Facebook Pages while Facebook is a source is a 422)',
+			monitor({ operation: 'update', updateFields: { facebookPages: '' } }),
+			'422',
+			FACEBOOK_REASON,
+		);
+		await call(
+			'monitor.update (Meta ads per run and a /pages/ URL keep the other accounts)',
+			monitor({
+				operation: 'update',
+				updateFields: {
+					metaAdsCount: 30,
+					facebookPages: 'https://www.facebook.com/pages/NASA/100064869009429',
+				},
+			}),
+			one((item) => {
+				const options = {
+					instagram: { accounts: ['natgeo', 'openai'] },
+					facebook: { pages: ['100064869009429'] },
+					meta_ads: { count: 30 },
+					threads: { accounts: ['zuck', 'openai'] },
+				};
+				return sameJson(item.options, options)
+					? undefined
+					: `options are ${JSON.stringify(item.options)}`;
+			}),
+		);
+		await call(
+			'monitor.update (dropping Instagram and Facebook with their accounts)',
+			monitor({
+				operation: 'update',
+				updateFields: {
+					sources: ['meta_ads', 'threads'],
+					instagramAccounts: '',
+					facebookPages: '',
+				},
+			}),
+			one((item) => {
+				const options = (item.options ?? {}) as Record<string, IDataObject>;
+				if (!sameJson(item.sources, ['meta_ads', 'threads'])) {
+					return `sources are ${JSON.stringify(item.sources)}`;
+				}
+				const left = [
+					...((options.instagram?.accounts as unknown[] | undefined) ?? []),
+					...((options.facebook?.pages as unknown[] | undefined) ?? []),
+				];
+				return left.length === 0 ? undefined : `options are ${JSON.stringify(options)}`;
+			}),
+		);
+		await expectHttpError(
+			'monitor.update (adding Facebook without pages is a 422)',
+			monitor({ operation: 'update', updateFields: { sources: ['meta_ads', 'facebook'] } }),
+			'422',
+			FACEBOOK_REASON,
+		);
+		for (const source of ['meta_ads', 'instagram', 'facebook']) {
+			await call(
+				`item.getAll (source ${source})`,
+				{ resource: 'item', operation: 'getAll', monitorId, itemFilters: { source } },
+				() => undefined,
+				(items) => `${items.length} items`,
+			);
+		}
+	} finally {
+		await call(
+			'monitor.delete (Instagram, Facebook, Meta ads)',
+			monitor({ operation: 'delete' }),
+			one((item) => (item.deleted === true ? undefined : 'not deleted')),
+		);
+	}
+}
+
 line(`Base URL: ${baseUrl}`);
 await run();
 await accounts();
+await socialSources();
 line(`${totals.requests} requests (Monitors routes are free)`);
 line(`${totals.pass} passed, ${totals.fail} failed, ${totals.skip} skipped`);
 process.exit(totals.fail > 0 ? 1 : 0);

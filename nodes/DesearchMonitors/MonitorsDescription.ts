@@ -140,9 +140,25 @@ export const itemOperations: INodeProperties = {
 const TIKTOK_NOTE =
 	"TikTok search has no working date filter and ranks by relevance, so a TikTok keyword monitor finds a new video only when it reaches TikTok's top results. To follow creators, watch their accounts (TikTok Accounts).";
 
+// Instagram and Facebook have no keyword search here: they only watch accounts and pages.
+const INSTAGRAM_NOTE =
+	'Instagram only watches accounts (Instagram Accounts): it has no keyword search here, so the API refuses a monitor with Instagram and no accounts (422).';
+
+const FACEBOOK_NOTE =
+	'Facebook only watches pages (Facebook Pages): it has no keyword search for posts, so the API refuses a monitor with Facebook and no pages (422). For ads by keyword, use Meta Ads.';
+
+const META_ADS_NOTE =
+	'Meta Ads searches the Meta Ad Library by keyword, so the query should be keywords: a brand, product or short phrase such as ChatGPT (a sentence finds nothing). An ad is new the first time a run sees it, if it started within the last 30 days.';
+
+const THREADS_NOTE =
+	'Threads keyword search returns loosely matched posts, so watching accounts (Threads Accounts) works better.';
+
 const sourceOptions = [
+	{ name: 'Facebook', value: 'facebook', description: FACEBOOK_NOTE },
+	{ name: 'Instagram', value: 'instagram', description: INSTAGRAM_NOTE },
+	{ name: 'Meta Ads', value: 'meta_ads', description: META_ADS_NOTE },
 	{ name: 'Reddit', value: 'reddit' },
-	{ name: 'Threads', value: 'threads' },
+	{ name: 'Threads', value: 'threads', description: THREADS_NOTE },
 	{
 		name: 'TikTok',
 		value: 'tiktok',
@@ -317,6 +333,37 @@ const xMinLikesField: INodeProperties = {
 const ACCOUNTS_NOTE =
 	"The query and criteria still decide which posts are kept; Min Score 0 keeps every new one. Kept items have data.account, and an account that cannot be read is listed in the run's stats.sources.<source>.accounts_failed.";
 
+const facebookPagesField: INodeProperties = {
+	displayName: 'Facebook Pages',
+	name: 'facebookPages',
+	type: 'string',
+	default: '',
+	placeholder: 'e.g. NASA, 100064869009429',
+	description: `1 to 10 Facebook pages to watch, separated by commas or new lines (NASA, a numeric page ID or a page URL; profile.php and /pages/Name/123… links become the page ID). Required with the Facebook source, which has no keyword search for posts; for ads by keyword, use Meta Ads. Each run reads up to 10 newest posts of each page ($0.0207 a page per run). ${ACCOUNTS_NOTE}`,
+};
+
+const instagramAccountsField: INodeProperties = {
+	displayName: 'Instagram Accounts',
+	name: 'instagramAccounts',
+	type: 'string',
+	default: '',
+	placeholder: 'e.g. openai, @natgeo',
+	description: `1 to 10 Instagram usernames to watch, separated by commas or new lines (openai, @openai or a profile URL). Required with the Instagram source, which has no keyword search here. Each run reads up to 12 newest posts of each account ($0.02484 an account per run). ${ACCOUNTS_NOTE}`,
+};
+
+const metaAdsCountField: INodeProperties = {
+	displayName: 'Meta Ads per Run',
+	name: 'metaAdsCount',
+	type: 'options',
+	options: [
+		{ name: '10', value: 10 },
+		{ name: '20', value: 20 },
+		{ name: '30', value: 30 },
+	],
+	default: 10,
+	description: `Ads each run reads from the Meta Ad Library. They are billed at the Ad Library price: $0.0207 for 10, $0.0621 for 30. ${META_ADS_NOTE}`,
+};
+
 const redditSubredditsField: INodeProperties = {
 	displayName: 'Reddit Subreddits',
 	name: 'redditSubreddits',
@@ -324,6 +371,15 @@ const redditSubredditsField: INodeProperties = {
 	default: '',
 	placeholder: 'e.g. LocalLLaMA, r/MachineLearning',
 	description: `Up to 10 subreddits to watch, separated by commas or new lines (LocalLLaMA, r/LocalLLaMA or a subreddit URL). Reddit then reads each one's newest posts instead of searching ($0.00207 a subreddit per run). ${ACCOUNTS_NOTE}`,
+};
+
+const threadsAccountsField: INodeProperties = {
+	displayName: 'Threads Accounts',
+	name: 'threadsAccounts',
+	type: 'string',
+	default: '',
+	placeholder: 'e.g. zuck, @openai',
+	description: `Up to 10 Threads usernames to watch, separated by commas or new lines (zuck, @zuck or a profile URL). Threads then reads each account's newest posts instead of searching ($0.00207 an account per run). Keyword search returns loosely matched posts, so accounts work better. ${ACCOUNTS_NOTE}`,
 };
 
 const tiktokAccountsField: INodeProperties = {
@@ -366,10 +422,13 @@ const youtubeChannelsField: INodeProperties = {
 	description: `Up to 10 channels to watch, separated by commas or new lines (@handle, a UC… channel ID or a channel URL). YouTube then reads each channel's latest videos instead of searching ($0.00207 a channel per run). ${ACCOUNTS_NOTE}`,
 };
 
-/** An account field in Update Fields, where set but empty stops watching. */
-const stopWatching = (field: INodeProperties): INodeProperties => ({
+/**
+ * An account field in Update Fields, where set but empty stops watching. `source` names a
+ * source that only watches accounts, which must leave Sources in the same update.
+ */
+const stopWatching = (field: INodeProperties, source?: string): INodeProperties => ({
 	...field,
-	description: `${field.description} Empty stops watching them.`,
+	description: `${field.description} Empty stops watching them${source ? `; take ${source} out of Sources in the same update, or the API refuses it (422)` : ''}.`,
 });
 
 const sourcesField = (operations: string[]): INodeProperties => ({
@@ -379,7 +438,8 @@ const sourcesField = (operations: string[]): INodeProperties => ({
 	required: true,
 	options: sourceOptions,
 	default: ['web', 'x'],
-	description: 'Where to look. Each run searches every source and is billed for those searches.',
+	description:
+		'Where to look. Each run searches every source and is billed for those searches. Instagram and Facebook only watch accounts: add Instagram Accounts or Facebook Pages under Options.',
 	displayOptions: showFor(['monitor'], operations),
 });
 
@@ -403,7 +463,7 @@ const createFields: INodeProperties[] = [
 		typeOptions: { rows: 2 },
 		placeholder: 'e.g. Bittensor subnet launches and updates',
 		description:
-			'What to watch, in plain words (3 to 500 characters). Each source is searched with it; with watched accounts, it decides which of their posts are kept.',
+			'What to watch, in plain words (3 to 500 characters). Each source is searched with it; with watched accounts, it decides which of their posts are kept. Meta Ads needs keywords: a brand, product or short phrase.',
 		displayOptions: showFor(['monitor'], ['create']),
 	},
 	sourcesField(['create', 'estimate']),
@@ -417,6 +477,9 @@ const createFields: INodeProperties[] = [
 		displayOptions: showFor(['monitor'], ['create']),
 		options: [
 			criteriaField,
+			facebookPagesField,
+			instagramAccountsField,
+			metaAdsCountField,
 			metadataField,
 			minScoreField,
 			nameField,
@@ -429,6 +492,7 @@ const createFields: INodeProperties[] = [
 				description: 'Whether to queue the first run at once instead of waiting for the schedule',
 			},
 			summaryField,
+			threadsAccountsField,
 			tiktokAccountsField,
 			tiktokCountField,
 			webCountField,
@@ -450,8 +514,12 @@ const createFields: INodeProperties[] = [
 		displayOptions: showFor(['monitor'], ['estimate']),
 		// What changes the cost of a run.
 		options: [
+			facebookPagesField,
+			instagramAccountsField,
+			metaAdsCountField,
 			redditSubredditsField,
 			summaryField,
+			threadsAccountsField,
 			tiktokAccountsField,
 			tiktokCountField,
 			webCountField,
@@ -496,6 +564,8 @@ const updateFields: INodeProperties[] = [
 		displayOptions: showFor(['monitor'], ['update']),
 		options: [
 			{ ...criteriaField, description: `${criteriaField.description} Empty removes them.` },
+			stopWatching(facebookPagesField, 'Facebook'),
+			stopWatching(instagramAccountsField, 'Instagram'),
 			{
 				displayName: 'Interval',
 				name: 'interval',
@@ -504,6 +574,7 @@ const updateFields: INodeProperties[] = [
 				default: '1d',
 				description: 'How often the monitor runs',
 			},
+			metaAdsCountField,
 			{ ...metadataField, description: "Replaces the monitor's labels. Empty removes them." },
 			minScoreField,
 			nameField,
@@ -529,7 +600,8 @@ const updateFields: INodeProperties[] = [
 				type: 'multiOptions',
 				options: sourceOptions,
 				default: ['web', 'x'],
-				description: 'Where to look',
+				description:
+					'Where to look. Instagram and Facebook need watched accounts: the monitor as updated must have Instagram Accounts or Facebook Pages.',
 			},
 			{
 				displayName: 'Status',
@@ -541,6 +613,7 @@ const updateFields: INodeProperties[] = [
 					'Paused stops scheduled runs (Trigger Run still works). Active resumes them, also after a pause for credits or a failing webhook.',
 			},
 			summaryField,
+			stopWatching(threadsAccountsField),
 			stopWatching(tiktokAccountsField),
 			tiktokCountField,
 			webCountField,
