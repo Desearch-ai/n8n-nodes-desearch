@@ -12,7 +12,7 @@ import { isSet } from '../shared/transport';
 
 /**
  * Monitors (`/desearch/monitors/*`): searches that run on a schedule and keep only what is
- * new. Every route is free; each run is billed (its searches at list price, screening per
+ * new. Every route is free; each run is billed (its searches at list price, AI screening per
  * item and the summary's LLM usage). Same credential and errors as People Search.
  */
 
@@ -40,19 +40,23 @@ export const MONITOR_EVENTS = [
 export const MONITOR_CRITERIA_MAX = 5;
 
 /**
- * Watched-account fields: node field -> [source, API option]. With accounts (up to 10 per
- * source), a source reads their newest posts instead of searching. Names go to the API as
- * typed; it cleans them (`@OpenAI` or a profile URL becomes `OpenAI`) and returns 422 for a
- * name it cannot read. Instagram and Facebook only watch accounts: the API returns 422 for a
- * monitor with either source and none of its accounts or pages.
+ * Watched-account and watched-hashtag fields: node field -> [source, API option]. With
+ * accounts or hashtags (up to 10 each per source), a source reads their newest posts instead
+ * of searching; a hashtag feed lists posts from any account. Names and hashtags go to the API
+ * as typed; it cleans them (`@OpenAI` or a profile URL becomes `OpenAI`, `#ავერსი` or a tag
+ * URL becomes the tag) and returns 422 for one it cannot read. Instagram and Facebook only
+ * watch accounts (and Instagram hashtags): the API returns 422 for a monitor with Instagram
+ * and no accounts or hashtags, or with Facebook and no pages.
  */
 const ACCOUNT_FIELDS: Record<string, [string, string]> = {
 	xAccounts: ['x', 'accounts'],
 	redditSubreddits: ['reddit', 'subreddits'],
 	youtubeChannels: ['youtube', 'channels'],
 	tiktokAccounts: ['tiktok', 'accounts'],
+	tiktokHashtags: ['tiktok', 'hashtags'],
 	threadsAccounts: ['threads', 'accounts'],
 	instagramAccounts: ['instagram', 'accounts'],
+	instagramHashtags: ['instagram', 'hashtags'],
 	facebookPages: ['facebook', 'pages'],
 };
 
@@ -111,9 +115,10 @@ function sourceList(node: INode, itemIndex: number, value: unknown): string[] {
 /**
  * The API's per-source `options` from the node's flat option fields, or undefined when none
  * is set: `web.count`; `x.count`, `x.lang`, `x.min_likes`, `x.accounts`; `reddit.subreddits`;
- * `youtube.channels`; `tiktok.count`, `tiktok.accounts`; `threads.accounts`;
- * `instagram.accounts`; `facebook.pages`; `meta_ads.count`. An account field that is set but
- * empty is sent as `[]` with `clearEmpty` (Update: it stops watching them).
+ * `youtube.channels`; `tiktok.count`, `tiktok.accounts`, `tiktok.hashtags`; `threads.accounts`;
+ * `instagram.accounts`, `instagram.hashtags`; `facebook.pages`; `meta_ads.count`. An account
+ * or hashtag field that is set but empty is sent as `[]` with `clearEmpty` (Update: it stops
+ * watching them).
  */
 export function sourceOptions(
 	fields: IDataObject,

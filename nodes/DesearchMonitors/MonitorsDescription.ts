@@ -138,14 +138,14 @@ export const itemOperations: INodeProperties = {
 };
 
 const TIKTOK_NOTE =
-	"TikTok search has no working date filter and ranks by relevance, so a TikTok keyword monitor finds a new video only when it reaches TikTok's top results. To follow creators, watch their accounts (TikTok Accounts).";
+	"TikTok search has no working date filter and ranks by relevance, so a TikTok keyword monitor finds a new video only when it reaches TikTok's top results. To follow creators or a tag, watch their accounts (TikTok Accounts) or the hashtag (TikTok Hashtags).";
 
-// Instagram and Facebook have no keyword search here: they only watch accounts and pages.
+// Instagram and Facebook have no keyword search here: they only watch accounts (and Instagram hashtags) and pages.
 const INSTAGRAM_NOTE =
-	'Instagram only watches accounts (Instagram Accounts): it has no keyword search here, so the API refuses a monitor with Instagram and no accounts (422).';
+	'Instagram only watches accounts and hashtags (Instagram Accounts, Instagram Hashtags): it has no keyword search here, so the API refuses a monitor with Instagram and neither (422).';
 
 const FACEBOOK_NOTE =
-	'Facebook only watches pages (Facebook Pages): it has no keyword search for posts, so the API refuses a monitor with Facebook and no pages (422). For ads by keyword, use Meta Ads.';
+	'Facebook only watches pages (Facebook Pages): it has no keyword search or hashtag feed for posts, so the API refuses a monitor with Facebook and no pages (422). For ads by keyword, use Meta Ads.';
 
 const META_ADS_NOTE =
 	'Meta Ads searches the Meta Ad Library by keyword, so the query should be keywords: a brand, product or short phrase such as ChatGPT (a sentence finds nothing). An ad is new the first time a run sees it, if it started within the last 30 days.';
@@ -333,13 +333,17 @@ const xMinLikesField: INodeProperties = {
 const ACCOUNTS_NOTE =
 	"The query and criteria still decide which posts are kept; Min Score 0 keeps every new one. Kept items have data.account, and an account that cannot be read is listed in the run's stats.sources.<source>.accounts_failed.";
 
+// Watched hashtags: feeds of posts from any account.
+const HASHTAGS_NOTE =
+	"A hashtag feed lists popular as well as recent posts from any account, so it finds posts outside the watched accounts; with accounts or hashtags, the source reads those feeds instead of searching. The query and criteria still decide which posts are kept; Min Score 0 keeps every new one. Kept items have data.hashtag, and a hashtag that cannot be read is listed in the run's stats.sources.<source>.hashtags_failed.";
+
 const facebookPagesField: INodeProperties = {
 	displayName: 'Facebook Pages',
 	name: 'facebookPages',
 	type: 'string',
 	default: '',
 	placeholder: 'e.g. NASA, 100064869009429',
-	description: `1 to 10 Facebook pages to watch, separated by commas or new lines (NASA, a numeric page ID or a page URL; profile.php and /pages/Name/123… links become the page ID). Required with the Facebook source, which has no keyword search for posts; for ads by keyword, use Meta Ads. Each run reads up to 10 newest posts of each page ($0.0207 a page per run). ${ACCOUNTS_NOTE}`,
+	description: `1 to 10 Facebook pages to watch, separated by commas or new lines (NASA, a numeric page ID or a page URL; profile.php and /pages/Name/123… links become the page ID). Required with the Facebook source, which has no keyword search or hashtag feed for posts; for ads by keyword, use Meta Ads. Each run reads up to 10 newest posts of each page ($0.0207 a page per run). ${ACCOUNTS_NOTE}`,
 };
 
 const instagramAccountsField: INodeProperties = {
@@ -348,7 +352,16 @@ const instagramAccountsField: INodeProperties = {
 	type: 'string',
 	default: '',
 	placeholder: 'e.g. openai, @natgeo',
-	description: `1 to 10 Instagram usernames to watch, separated by commas or new lines (openai, @openai or a profile URL). Required with the Instagram source, which has no keyword search here. Each run reads up to 12 newest posts of each account ($0.02484 an account per run). ${ACCOUNTS_NOTE}`,
+	description: `Up to 10 Instagram usernames to watch, separated by commas or new lines (openai, @openai or a profile URL). The Instagram source has no keyword search here, so it needs Instagram Accounts or Instagram Hashtags. Each run reads up to 12 newest posts of each account ($0.02484 an account per run). ${ACCOUNTS_NOTE}`,
+};
+
+const instagramHashtagsField: INodeProperties = {
+	displayName: 'Instagram Hashtags',
+	name: 'instagramHashtags',
+	type: 'string',
+	default: '',
+	placeholder: 'e.g. aversi, #ავერსი',
+	description: `Up to 10 hashtags to watch on Instagram, separated by commas or new lines, in any script (aversi, #ავერსი or an instagram.com/explore/tags/… URL). Each run reads up to 12 posts of each hashtag ($0.02484 a hashtag per run). The API returns them without #. ${HASHTAGS_NOTE}`,
 };
 
 const metaAdsCountField: INodeProperties = {
@@ -391,6 +404,15 @@ const tiktokAccountsField: INodeProperties = {
 	description: `Up to 10 TikTok usernames to watch, separated by commas or new lines (openai, @openai or a profile URL). TikTok then reads TikTok Posts per Run newest posts of each account instead of searching. ${ACCOUNTS_NOTE}`,
 };
 
+const tiktokHashtagsField: INodeProperties = {
+	displayName: 'TikTok Hashtags',
+	name: 'tiktokHashtags',
+	type: 'string',
+	default: '',
+	placeholder: 'e.g. aversi, #ავერსი',
+	description: `Up to 10 hashtags to watch on TikTok, separated by commas or new lines, in any script (aversi, #ავერსი or a tiktok.com/tag/… URL). Each run reads TikTok Posts per Run posts of each hashtag ($0.00207 a post). The API returns them without #. ${HASHTAGS_NOTE}`,
+};
+
 const tiktokCountField: INodeProperties = {
 	displayName: 'TikTok Posts per Run',
 	name: 'tiktokCount',
@@ -401,7 +423,7 @@ const tiktokCountField: INodeProperties = {
 		{ name: '30', value: 30 },
 	],
 	default: 10,
-	description: `Posts each run reads from TikTok ($0.00207 a post). With TikTok Accounts, this many from each account. ${TIKTOK_NOTE}`,
+	description: `Posts each run reads from TikTok ($0.00207 a post). With TikTok Accounts or TikTok Hashtags, this many from each account and each hashtag. ${TIKTOK_NOTE}`,
 };
 
 const xAccountsField: INodeProperties = {
@@ -423,12 +445,13 @@ const youtubeChannelsField: INodeProperties = {
 };
 
 /**
- * An account field in Update Fields, where set but empty stops watching. `source` names a
- * source that only watches accounts, which must leave Sources in the same update.
+ * An account or hashtag field in Update Fields, where set but empty stops watching. `source`
+ * names a source that only watches accounts, which must leave Sources in the same update
+ * unless it keeps `other` (Instagram: its accounts or hashtags).
  */
-const stopWatching = (field: INodeProperties, source?: string): INodeProperties => ({
+const stopWatching = (field: INodeProperties, source?: string, other?: string): INodeProperties => ({
 	...field,
-	description: `${field.description} Empty stops watching them${source ? `; take ${source} out of Sources in the same update, or the API refuses it (422)` : ''}.`,
+	description: `${field.description} Empty stops watching them${source ? `; ${other ? `keep ${other} or ` : ''}take ${source} out of Sources in the same update, or the API refuses it (422)` : ''}.`,
 });
 
 const sourcesField = (operations: string[]): INodeProperties => ({
@@ -439,7 +462,7 @@ const sourcesField = (operations: string[]): INodeProperties => ({
 	options: sourceOptions,
 	default: ['web', 'x'],
 	description:
-		'Where to look. Each run searches every source and is billed for those searches. Instagram and Facebook only watch accounts: add Instagram Accounts or Facebook Pages under Options.',
+		'Where to look. Each run searches every source and is billed for those searches. Instagram and Facebook only watch accounts: add Instagram Accounts or Instagram Hashtags, or Facebook Pages, under Options.',
 	displayOptions: showFor(['monitor'], operations),
 });
 
@@ -463,7 +486,7 @@ const createFields: INodeProperties[] = [
 		typeOptions: { rows: 2 },
 		placeholder: 'e.g. Bittensor subnet launches and updates',
 		description:
-			'What to watch, in plain words (3 to 500 characters). Each source is searched with it; with watched accounts, it decides which of their posts are kept. Meta Ads needs keywords: a brand, product or short phrase.',
+			'What to watch, in plain words (3 to 500 characters). Each source is searched with it; with watched accounts or hashtags, it decides which of their posts are kept. Meta Ads needs keywords: a brand, product or short phrase.',
 		displayOptions: showFor(['monitor'], ['create']),
 	},
 	sourcesField(['create', 'estimate']),
@@ -479,6 +502,7 @@ const createFields: INodeProperties[] = [
 			criteriaField,
 			facebookPagesField,
 			instagramAccountsField,
+			instagramHashtagsField,
 			metaAdsCountField,
 			metadataField,
 			minScoreField,
@@ -494,6 +518,7 @@ const createFields: INodeProperties[] = [
 			summaryField,
 			threadsAccountsField,
 			tiktokAccountsField,
+			tiktokHashtagsField,
 			tiktokCountField,
 			webCountField,
 			webhookEventsField,
@@ -516,11 +541,13 @@ const createFields: INodeProperties[] = [
 		options: [
 			facebookPagesField,
 			instagramAccountsField,
+			instagramHashtagsField,
 			metaAdsCountField,
 			redditSubredditsField,
 			summaryField,
 			threadsAccountsField,
 			tiktokAccountsField,
+			tiktokHashtagsField,
 			tiktokCountField,
 			webCountField,
 			xAccountsField,
@@ -565,7 +592,8 @@ const updateFields: INodeProperties[] = [
 		options: [
 			{ ...criteriaField, description: `${criteriaField.description} Empty removes them.` },
 			stopWatching(facebookPagesField, 'Facebook'),
-			stopWatching(instagramAccountsField, 'Instagram'),
+			stopWatching(instagramAccountsField, 'Instagram', 'Instagram Hashtags'),
+			stopWatching(instagramHashtagsField, 'Instagram', 'Instagram Accounts'),
 			{
 				displayName: 'Interval',
 				name: 'interval',
@@ -601,7 +629,7 @@ const updateFields: INodeProperties[] = [
 				options: sourceOptions,
 				default: ['web', 'x'],
 				description:
-					'Where to look. Instagram and Facebook need watched accounts: the monitor as updated must have Instagram Accounts or Facebook Pages.',
+					'Where to look. Instagram and Facebook need watched accounts: the monitor as updated must have Instagram Accounts or Instagram Hashtags for Instagram, and Facebook Pages for Facebook.',
 			},
 			{
 				displayName: 'Status',
@@ -615,6 +643,7 @@ const updateFields: INodeProperties[] = [
 			summaryField,
 			stopWatching(threadsAccountsField),
 			stopWatching(tiktokAccountsField),
+			stopWatching(tiktokHashtagsField),
 			tiktokCountField,
 			webCountField,
 			webhookEventsField,

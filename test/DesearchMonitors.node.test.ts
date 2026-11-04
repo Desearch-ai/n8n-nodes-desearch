@@ -119,7 +119,8 @@ const SOCIAL_MONITOR = {
 	},
 };
 
-const INSTAGRAM_422 = 'Instagram watches accounts: add at least one in options.instagram.accounts';
+const INSTAGRAM_422 =
+	'Instagram watches accounts or hashtags: add at least one in options.instagram.accounts or options.instagram.hashtags';
 
 describe('Monitor > Create', () => {
 	it('posts the query, sources, schedule, options and webhook and returns the monitor', async () => {
@@ -274,6 +275,36 @@ describe('Monitor > Create', () => {
 		});
 	});
 
+	it('sends TikTok and Instagram hashtags as typed, without duplicates, and Instagram with hashtags alone', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'create',
+				query: 'Aversi pharmacies',
+				sources: ['tiktok', 'instagram'],
+				createOptions: {
+					minScore: 0,
+					tiktokAccounts: '@openai',
+					tiktokHashtags: '#ავერსი, https://www.tiktok.com/tag/aversi\n#ავერსი',
+					instagramHashtags: 'https://www.instagram.com/explore/tags/aversi/\nავერსი',
+				},
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'Aversi pharmacies',
+			sources: ['tiktok', 'instagram'],
+			interval: '1d',
+			min_score: 0,
+			options: {
+				tiktok: { accounts: ['@openai'], hashtags: ['#ავერსი', 'https://www.tiktok.com/tag/aversi'] },
+				instagram: { hashtags: ['https://www.instagram.com/explore/tags/aversi/', 'ავერსი'] },
+			},
+		});
+	});
+
 	it('leaves Instagram without accounts to the API, which refuses it with a 422', async () => {
 		const { context, httpRequestWithAuthentication } = createExecuteContext(
 			{ operation: 'create', query: 'National Geographic photos', sources: ['instagram'] },
@@ -310,7 +341,9 @@ describe('Monitor > Create', () => {
 				createOptions: {
 					xAccounts: ' ',
 					tiktokAccounts: '',
+					tiktokHashtags: ' ',
 					instagramAccounts: '',
+					instagramHashtags: '',
 					facebookPages: ' \n ',
 					threadsAccounts: '',
 				},
@@ -677,6 +710,30 @@ describe('Monitor > Update', () => {
 			((sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject).options as IDataObject)
 				.reddit,
 		).toEqual({ subreddits: [] });
+	});
+
+	it('stops watching hashtags when the field is set but empty, and keeps the accounts', async () => {
+		const current = {
+			...MONITOR,
+			sources: ['tiktok'],
+			options: { tiktok: { count: 10, accounts: ['openai'], hashtags: ['aversi'] } },
+		};
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{ operation: 'update', monitorId: MONITOR_ID, updateFields: { tiktokHashtags: '' } },
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(current),
+					[`PATCH ${MONITOR_PATH}`]: () => response(current),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(
+			((sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject).options as IDataObject)
+				.tiktok,
+		).toEqual({ count: 10, accounts: ['openai'], hashtags: [] });
 	});
 
 	it('merges Instagram accounts, Meta ads per run and Threads accounts into the current options', async () => {
