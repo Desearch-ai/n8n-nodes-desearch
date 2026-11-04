@@ -1,6 +1,6 @@
 # n8n-nodes-desearch
 
-AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data, page extraction, people search and company search for AI agents.
+AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data, page extraction, people search, company search and monitors for AI agents.
 
 This is an n8n community node for the [Desearch API](https://desearch.ai). It calls the Desearch REST API directly and has no runtime dependencies.
 
@@ -42,7 +42,7 @@ For Get Retweeters and Get User Posts, put the `next_cursor` of a page in **Curs
 
 **TikTok** resource: **Search** (`POST /desearch/tiktok/search`), **Get Post** (`GET /desearch/tiktok/post/{id}`), **Get Profile** (`GET /desearch/tiktok/profile/{username}`), **Get Profile Posts** (`GET /desearch/tiktok/profile/{username}/posts`), **Get Comments** (`GET /desearch/tiktok/comments/{video_id}`), **Get Hashtag Posts** (`GET /desearch/tiktok/hashtag/{tag}`) and **Get Trending** for a region (`GET /desearch/tiktok/trending`).
 
-**Facebook** resource: **Search Ad Library**, public Meta Ad Library records by keyword (`POST /desearch/facebook/search`), **Get Post** (`GET /desearch/facebook/post/{id}`), **Get Profile** of a profile or page (`GET /desearch/facebook/profile/{profile_id}`), **Get Profile Posts** (`GET /desearch/facebook/profile/{profile_id}/posts`), **Get Comments**, about 10 a page (`GET /desearch/facebook/comments/{post_id}`) and **Get Hashtag Posts**, Ad Library records for a keyword or hashtag (`GET /desearch/facebook/hashtag/{tag}`).
+**Facebook** resource: **Search Ad Library**, public Meta Ad Library records by keyword (`POST /desearch/facebook/search`; **Options > Sort** is Impressions, most seen first and the default, or Recent, which puts recently started ads first), **Get Post** (`GET /desearch/facebook/post/{id}`), **Get Profile** of a profile or page (`GET /desearch/facebook/profile/{profile_id}`), **Get Profile Posts** (`GET /desearch/facebook/profile/{profile_id}/posts`), **Get Comments**, about 10 a page (`GET /desearch/facebook/comments/{post_id}`) and **Get Hashtag Posts**, Ad Library records for a keyword or hashtag (`GET /desearch/facebook/hashtag/{tag}`).
 
 **Instagram** resource: **Search Profiles** (`POST /desearch/instagram/search`), **Get Post** by shortcode, ID or URL (`GET /desearch/instagram/media/{id}`), **Get Profile** (`GET /desearch/instagram/profile/{username}`), **Get Profile Posts** (`GET /desearch/instagram/profile/{username}/posts`), **Get Comments** by post shortcode (`GET /desearch/instagram/comments/{shortcode}`) and **Get Hashtag Posts** (`GET /desearch/instagram/hashtag/{tag}`).
 
@@ -122,7 +122,44 @@ A typical workflow is **Company Search > Start**, then **Company Search > Get Re
 
 **Billing.** Only Start is billed. Company Search reserves `count` companies and Company Enrich one company per domain, at the route's per-company price ([prices](https://desearch.ai/pricing)). When the task ends you pay only for the companies it delivered, with a minimum of 2 (Company Search) or 1 (Company Enrich) when it delivers any; a task that delivers none is free, and a company left out by Min Score or Must Have is not billed. Every other operation is free. As with People Search, set an **Idempotency Key** when you turn on **Retry On Fail** for Start.
 
-All three nodes can also be used as tools by AI Agent nodes and use the same **Desearch API** credential.
+### Desearch Monitors
+
+A monitor is a search that runs on a schedule (every hour to every week) over the web, X, Reddit, YouTube, Threads, TikTok, Instagram, Facebook and the Meta Ad Library and keeps only what is new: each run searches from where the previous run ended, drops everything the monitor has already seen and screens the rest for relevance with an AI classifier, so you get new posts, pages and videos about what you watch, for example "Bittensor subnet launches and updates". New items go to your webhook and stay readable here. See the [Monitors guide](https://www.desearch.ai/docs/guide/apis/monitors).
+
+**Monitor** resource:
+
+- **Create**: create a monitor (`POST /desearch/monitors`) from a **Query**, its **Sources** and **Interval** (1h, 3h, 6h, 12h, 1d or 7d). Options: a name, up to 5 **Criteria** (one per line) an item must meet, **Min Score** (0 to 100, default 60), a **Summary** of each run, pages per run from the web (10, 15 or 20), X posts per run (1 to 100), X language and minimum likes, TikTok posts per run (10, 20 or 30), Meta ads per run (10, 20 or 30), watched accounts (below), a **Webhook URL** and its events, metadata labels, and **Run Now** (on by default: the first run is queued at once). With a webhook, the output has `webhook_secret`, returned only here: keep it to check the `Desearch-Signature` header of each delivery.
+- **Estimate Cost**: the most one run and one month of runs can cost for given sources, interval and options (`POST /desearch/monitors/estimate`).
+- **Get**: settings, status, last run and totals (`GET /desearch/monitors/{monitor_id}`). `webhook` (null without one) also has `consecutive_failures` and `last_delivery`, the newest delivery: `null` before the first, else its `event`, `status` (`pending` while it waits for its first or next attempt at `next_attempt_at`, `delivered`, or `failed` after every retry), `attempts`, the endpoint's last `status_code` or `error`, `created_at` and `delivered_at`. A failed delivery is retried after 1, 5, 30, 120 and 360 minutes, and 5 failed deliveries in a row pause the monitor (`paused_reason` `webhook_failing`).
+- **Get Many**: your monitors, newest first, filtered by status (`GET /desearch/monitors`).
+- **Update**: change any setting, or set **Status** to Paused or Active (`PATCH /desearch/monitors/{monitor_id}`). The API replaces the per-source options and the webhook as a whole, so when you change one of them the node reads the monitor first and keeps the rest. A new webhook URL gets a new `webhook_secret`; **Remove Webhook** removes it.
+- **Delete**: stop a monitor for good (`DELETE /desearch/monitors/{monitor_id}`).
+- **Trigger Run**: queue a run now, outside the schedule (`POST /desearch/monitors/{monitor_id}/trigger`). It fails with 409 while a run is queued or running.
+- **Test Webhook**: send a signed `monitor.test` event to the webhook and see what your endpoint answered (`POST /desearch/monitors/{monitor_id}/webhook/test`).
+- **Rotate Webhook Secret**: a new signing secret, returned once (`POST /desearch/monitors/{monitor_id}/webhook/rotate-secret`).
+
+**Watched accounts.** Instead of searching by keyword, a source can watch up to 10 accounts, separated by commas or new lines: **X Accounts** (`OpenAI`, `@OpenAI` or an x.com URL; X usernames are at most 15 characters), **Reddit Subreddits** (`LocalLLaMA`, `r/LocalLLaMA` or a URL), **YouTube Channels** (`@handle`, a `UC…` channel ID or a channel URL), **TikTok Accounts** (`openai`, `@openai` or a profile URL), **Threads Accounts** (`zuck`, `@zuck` or a profile URL), **Instagram Accounts** (`openai`, `@openai` or a profile URL) and **Facebook Pages** (`NASA`, a numeric page ID or a page URL; `profile.php?id=…` and `/pages/Name/123…` links become the ID). Each run then reads every account's newest posts, and the query and criteria still decide which are kept; set **Min Score** to 0 to keep every new post. With X accounts, X Posts per Run is not used (a timeline is 20 posts) and X Language and X Min Likes still filter; with TikTok accounts, TikTok Posts per Run is read from each account. TikTok search has no working date filter and ranks by relevance, so a TikTok keyword monitor finds a new video only when it reaches TikTok's top results; to follow creators, watch their accounts (TikTok Accounts). Threads keyword search returns loosely matched posts, so Threads Accounts work better there too. The API returns the names cleaned (`OpenAI`, `LocalLLaMA`, `@OpenAI` or `UC…`, `openai`, `zuck`, `NASA` or `100064869009429`) and fails with a 422 on a name it cannot read.
+
+**Watched hashtags.** TikTok and Instagram can also watch up to 10 hashtags each, separated by commas or new lines: **TikTok Hashtags** and **Instagram Hashtags**, in any script (`skincare`, `#სილამაზე`, or a tag URL such as `https://www.tiktok.com/tag/skincare` or `https://www.instagram.com/explore/tags/skincare/`). A hashtag feed lists popular as well as recent posts from any account, so a monitor finds posts outside the accounts it watches; with accounts or hashtags, a source reads those feeds instead of searching by keyword. Each run reads TikTok Posts per Run posts of each TikTok hashtag and up to 12 of each Instagram hashtag. The API returns hashtags without `#` and fails with a 422 on one it cannot read. An item read from a hashtag has `data.hashtag`, and a hashtag that could not be read in a run is listed in its `stats.sources.<source>.hashtags_failed`. Facebook has no organic hashtag feed; for ads by keyword, use Meta Ads.
+
+**Instagram, Facebook and Meta Ads.** Instagram and Facebook have no keyword search here, so those sources only watch accounts: a monitor with Instagram needs **Instagram Accounts** or **Instagram Hashtags** and one with Facebook needs **Facebook Pages**. Create and Update fail with a 422 without them (for example "Instagram watches accounts or hashtags: add at least one in options.instagram.accounts or options.instagram.hashtags"); Update checks the monitor as updated, so to stop watching them, take the source out of **Sources** in the same update. Estimate Cost does not check this. **Meta Ads** searches the Meta Ad Library by keyword (**Meta Ads per Run**: 10, 20 or 30), so its query should be keywords, a brand, product or short phrase such as `ChatGPT`: a sentence finds nothing. An ad is new the first time a run sees it, if it started within the last 30 days, and ads are screened with their own relevance question and no `new_info`. For ads by keyword, use Meta Ads, not Facebook. In Update, a watched-accounts or watched-hashtags field that is set but empty stops watching that source's accounts or hashtags. An item read from a watched account has `data.account`, and an account that could not be read in a run is listed in its `stats.sources.<source>.accounts_failed`.
+
+Item `data` holds the source's fields: X `likes`, `reposts`, `replies`, `views`; Reddit `subreddit`, `score`, `comments`; YouTube `channel`, `views`, `thumbnail`; TikTok `views`, `likes`, `comments`, `shares`, `saves`, `duration_s`; Threads `likes`; Instagram `likes`, `comments`, `views`, `media_type`; Facebook `reactions`, `comments`, `shares`, `views`; Meta ads `page`, `active`, `cta`, `link` (the ad's landing page), `platforms`, `thumbnail`, with the ad headline as the item's `title` and the Ad Library record as its `url`; web `highlights`, `domain`. TikTok, Instagram and Facebook items also have `post_id` (the ID the API's `GET /desearch/social/post` gives the same post; an Instagram shortcode), `type` (`video`, `image`, `carousel`, `reel`, …), `hashtags`, `mentions` (TikTok and Instagram), `media` (links to the post's videos and pictures) and `thumbnail`; media and thumbnail links expire after a few days. The metrics are the post's when the run found it; `GET /desearch/social/post?url=<link>` reads them again (`author=true` adds the author's followers). An item read from a watched account also has `account`, and one read from a watched hashtag `hashtag`. `signals` has `relevant` and `new_info`, and `criteria` (the lowest answer across the criteria) when the monitor has criteria.
+
+**Run** resource:
+
+- **Get**: one run with the items it kept, most relevant first (`GET /desearch/monitors/{monitor_id}/runs/{run_id}`). With **Wait for Completion** on, the node checks the run every **Poll Interval** seconds until it ends, and fails if it failed or is still going after **Timeout**. Set **Output** to Kept Items to get one output item per kept item.
+- **Get Many**: a monitor's runs, newest first, with what each source returned and the cost (`GET /desearch/monitors/{monitor_id}/runs`).
+
+**Item** resource:
+
+- **Get Many**: everything a monitor kept, newest first, optionally from one source, including Instagram, Facebook and Meta Ads (`GET /desearch/monitors/{monitor_id}/items`).
+
+A typical workflow is **Monitor > Create** once, then a Webhook node that receives its deliveries. To try a monitor right away, use **Monitor > Trigger Run**, then **Run > Get** with Monitor ID `{{ $json.monitor_id }}`, Run ID `{{ $json.run_id }}` and Wait for Completion on.
+
+**Billing.** Every Monitors operation is free. Each run is billed for what it used: its searches at their list price, AI screening per item and, with Summary on, the LLM usage plus 50% ([prices](https://desearch.ai/pricing)). TikTok, Instagram, Facebook and Meta Ads are billed per read, $3.00 per 1,000 reads ($0.003 a read), whatever the number of posts a read returns: one read per watched account, hashtag or Facebook page, one per TikTok keyword search, and one per Meta Ad Library search, whatever Meta Ads per Run. A read that returns nothing is free, except an empty or private TikTok account, which takes two reads, so a run's hold counts two reads per TikTok account. The other sources pay their feed's list price: an X timeline is about $0.003 (20 posts), and a subreddit, YouTube channel or Threads account $0.00207. A run with no new items still pays for its searches. While a run is going, its maximum cost (`max_run_cost_usd`) is held on your balance; a monitor whose run cannot be held pauses with `paused_reason` `insufficient_credits`.
+
+All four nodes can also be used as tools by AI Agent nodes and use the same **Desearch API** credential.
 
 ## Development
 
@@ -145,6 +182,12 @@ DESEARCH_API_KEY=... npm run e2e -- --with-people
 ```bash
 DESEARCH_API_KEY=... npm run e2e:yrt
 npm run e2e:yrt -- --base-url https://api-dev.desearch.ai --key-env DESEARCH_DEV_API_KEY
+```
+
+`scripts/e2e-monitors.mts` (`npm run e2e:monitors`) runs every Desearch Monitors operation but Trigger Run against a live API: it estimates, creates a monitor that never runs (Run Now off, then paused), reads, lists, updates, sends a test webhook event, rotates the secret and deletes the monitor. Two more monitors that never run check watched accounts on X, Reddit, YouTube and TikTok, then Instagram, Facebook, Meta Ads and Threads: the cleaned names, the estimate's breakdown at the listed prices, `webhook.last_delivery` null on a fresh monitor, the 422 for Instagram or Facebook without accounts on Create and Update, and the item filter for the new sources. It is free, takes the same `--base-url` and `--key-env`, and always deletes what it created:
+
+```bash
+npm run e2e:monitors -- --base-url https://api-dev.desearch.ai --key-env DESEARCH_DEV_API_KEY
 ```
 
 ## Credentials

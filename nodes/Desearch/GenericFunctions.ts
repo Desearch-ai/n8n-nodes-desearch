@@ -382,7 +382,13 @@ export const SOCIAL_ROUTES: Record<string, Record<string, SocialRoute>> = {
 		getTrending: { path: '/desearch/tiktok/trending', list: true },
 	},
 	facebook: {
-		search: { path: '/desearch/facebook/search', search: true, list: true, cursor: true },
+		search: {
+			path: '/desearch/facebook/search',
+			search: true,
+			list: true,
+			cursor: true,
+			extra: fromOptions({ sort: 'sort' }),
+		},
 		getPost: { path: '/desearch/facebook/post/{}', pathParameter: POST_ID },
 		getProfile: {
 			path: '/desearch/facebook/profile/{}',
