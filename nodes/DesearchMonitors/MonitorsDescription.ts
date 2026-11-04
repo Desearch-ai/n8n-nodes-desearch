@@ -360,8 +360,8 @@ const instagramHashtagsField: INodeProperties = {
 	name: 'instagramHashtags',
 	type: 'string',
 	default: '',
-	placeholder: 'e.g. aversi, #ავერსი',
-	description: `Up to 10 hashtags to watch on Instagram, separated by commas or new lines, in any script (aversi, #ავერსი or an instagram.com/explore/tags/… URL). Each run reads up to 12 posts of each hashtag ($0.02484 a hashtag per run). The API returns them without #. ${HASHTAGS_NOTE}`,
+	placeholder: 'e.g. skincare, #სილამაზე',
+	description: `Up to 10 hashtags to watch on Instagram, separated by commas or new lines, in any script (skincare, #სილამაზე or an instagram.com/explore/tags/… URL). Each run reads up to 12 posts of each hashtag ($0.02484 a hashtag per run). The API returns them without #. ${HASHTAGS_NOTE}`,
 };
 
 const metaAdsCountField: INodeProperties = {
@@ -409,8 +409,8 @@ const tiktokHashtagsField: INodeProperties = {
 	name: 'tiktokHashtags',
 	type: 'string',
 	default: '',
-	placeholder: 'e.g. aversi, #ავერსი',
-	description: `Up to 10 hashtags to watch on TikTok, separated by commas or new lines, in any script (aversi, #ავერსი or a tiktok.com/tag/… URL). Each run reads TikTok Posts per Run posts of each hashtag ($0.00207 a post). The API returns them without #. ${HASHTAGS_NOTE}`,
+	placeholder: 'e.g. skincare, #სილამაზე',
+	description: `Up to 10 hashtags to watch on TikTok, separated by commas or new lines, in any script (skincare, #სილამაზე or a tiktok.com/tag/… URL). Each run reads TikTok Posts per Run posts of each hashtag ($0.00207 a post). The API returns them without #. ${HASHTAGS_NOTE}`,
 };
 
 const tiktokCountField: INodeProperties = {

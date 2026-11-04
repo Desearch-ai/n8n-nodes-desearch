@@ -279,13 +279,13 @@ describe('Monitor > Create', () => {
 		const { context, httpRequestWithAuthentication } = createExecuteContext(
 			{
 				operation: 'create',
-				query: 'Aversi pharmacies',
+				query: 'Posts about our skincare brand',
 				sources: ['tiktok', 'instagram'],
 				createOptions: {
 					minScore: 0,
 					tiktokAccounts: '@openai',
-					tiktokHashtags: '#ავერსი, https://www.tiktok.com/tag/aversi\n#ავერსი',
-					instagramHashtags: 'https://www.instagram.com/explore/tags/aversi/\nავერსი',
+					tiktokHashtags: '#სილამაზე, https://www.tiktok.com/tag/skincare\n#სილამაზე',
+					instagramHashtags: 'https://www.instagram.com/explore/tags/skincare/\nსილამაზე',
 				},
 			},
 			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
@@ -294,13 +294,13 @@ describe('Monitor > Create', () => {
 		await execute(context);
 
 		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
-			query: 'Aversi pharmacies',
+			query: 'Posts about our skincare brand',
 			sources: ['tiktok', 'instagram'],
 			interval: '1d',
 			min_score: 0,
 			options: {
-				tiktok: { accounts: ['@openai'], hashtags: ['#ავერსი', 'https://www.tiktok.com/tag/aversi'] },
-				instagram: { hashtags: ['https://www.instagram.com/explore/tags/aversi/', 'ავერსი'] },
+				tiktok: { accounts: ['@openai'], hashtags: ['#სილამაზე', 'https://www.tiktok.com/tag/skincare'] },
+				instagram: { hashtags: ['https://www.instagram.com/explore/tags/skincare/', 'სილამაზე'] },
 			},
 		});
 	});
@@ -716,7 +716,7 @@ describe('Monitor > Update', () => {
 		const current = {
 			...MONITOR,
 			sources: ['tiktok'],
-			options: { tiktok: { count: 10, accounts: ['openai'], hashtags: ['aversi'] } },
+			options: { tiktok: { count: 10, accounts: ['openai'], hashtags: ['skincare'] } },
 		};
 		const { context, httpRequestWithAuthentication } = createExecuteContext(
 			{ operation: 'update', monitorId: MONITOR_ID, updateFields: { tiktokHashtags: '' } },

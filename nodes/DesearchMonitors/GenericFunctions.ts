@@ -43,7 +43,7 @@ export const MONITOR_CRITERIA_MAX = 5;
  * Watched-account and watched-hashtag fields: node field -> [source, API option]. With
  * accounts or hashtags (up to 10 each per source), a source reads their newest posts instead
  * of searching; a hashtag feed lists posts from any account. Names and hashtags go to the API
- * as typed; it cleans them (`@OpenAI` or a profile URL becomes `OpenAI`, `#ავერსი` or a tag
+ * as typed; it cleans them (`@OpenAI` or a profile URL becomes `OpenAI`, `#სილამაზე` or a tag
  * URL becomes the tag) and returns 422 for one it cannot read. Instagram and Facebook only
  * watch accounts (and Instagram hashtags): the API returns 422 for a monitor with Instagram
  * and no accounts or hashtags, or with Facebook and no pages.
