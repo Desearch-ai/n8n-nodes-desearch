@@ -343,7 +343,7 @@ const facebookPagesField: INodeProperties = {
 	type: 'string',
 	default: '',
 	placeholder: 'e.g. NASA, 100064869009429',
-	description: `1 to 10 Facebook pages to watch, separated by commas or new lines (NASA, a numeric page ID or a page URL; profile.php and /pages/Name/123… links become the page ID). Required with the Facebook source, which has no keyword search or hashtag feed for posts; for ads by keyword, use Meta Ads. Each run reads up to 10 newest posts of each page ($0.0207 a page per run). ${ACCOUNTS_NOTE}`,
+	description: `1 to 10 Facebook pages to watch, separated by commas or new lines (NASA, a numeric page ID or a page URL; profile.php and /pages/Name/123… links become the page ID). Required with the Facebook source, which has no keyword search or hashtag feed for posts; for ads by keyword, use Meta Ads. Each run reads up to 10 newest posts of each page, billed as one read ($0.003 a page per run). ${ACCOUNTS_NOTE}`,
 };
 
 const instagramAccountsField: INodeProperties = {
@@ -352,7 +352,7 @@ const instagramAccountsField: INodeProperties = {
 	type: 'string',
 	default: '',
 	placeholder: 'e.g. openai, @natgeo',
-	description: `Up to 10 Instagram usernames to watch, separated by commas or new lines (openai, @openai or a profile URL). The Instagram source has no keyword search here, so it needs Instagram Accounts or Instagram Hashtags. Each run reads up to 12 newest posts of each account ($0.02484 an account per run). ${ACCOUNTS_NOTE}`,
+	description: `Up to 10 Instagram usernames to watch, separated by commas or new lines (openai, @openai or a profile URL). The Instagram source has no keyword search here, so it needs Instagram Accounts or Instagram Hashtags. Each run reads up to 12 newest posts of each account, billed as one read ($0.003 an account per run). ${ACCOUNTS_NOTE}`,
 };
 
 const instagramHashtagsField: INodeProperties = {
@@ -361,7 +361,7 @@ const instagramHashtagsField: INodeProperties = {
 	type: 'string',
 	default: '',
 	placeholder: 'e.g. skincare, #სილამაზე',
-	description: `Up to 10 hashtags to watch on Instagram, separated by commas or new lines, in any script (skincare, #სილამაზე or an instagram.com/explore/tags/… URL). Each run reads up to 12 posts of each hashtag ($0.02484 a hashtag per run). The API returns them without #. ${HASHTAGS_NOTE}`,
+	description: `Up to 10 hashtags to watch on Instagram, separated by commas or new lines, in any script (skincare, #სილამაზე or an instagram.com/explore/tags/… URL). Each run reads up to 12 posts of each hashtag, billed as one read ($0.003 a hashtag per run). The API returns them without #. ${HASHTAGS_NOTE}`,
 };
 
 const metaAdsCountField: INodeProperties = {
@@ -374,7 +374,7 @@ const metaAdsCountField: INodeProperties = {
 		{ name: '30', value: 30 },
 	],
 	default: 10,
-	description: `Ads each run reads from the Meta Ad Library. They are billed at the Ad Library price: $0.0207 for 10, $0.0621 for 30. ${META_ADS_NOTE}`,
+	description: `Ads each run reads from the Meta Ad Library. The search is billed as one read per run ($0.003), whatever the number. ${META_ADS_NOTE}`,
 };
 
 const redditSubredditsField: INodeProperties = {
@@ -401,7 +401,7 @@ const tiktokAccountsField: INodeProperties = {
 	type: 'string',
 	default: '',
 	placeholder: 'e.g. openai, @duolingo',
-	description: `Up to 10 TikTok usernames to watch, separated by commas or new lines (openai, @openai or a profile URL). TikTok then reads TikTok Posts per Run newest posts of each account instead of searching. ${ACCOUNTS_NOTE}`,
+	description: `Up to 10 TikTok usernames to watch, separated by commas or new lines (openai, @openai or a profile URL). TikTok then reads TikTok Posts per Run newest posts of each account instead of searching, billed as one read ($0.003) per account. ${ACCOUNTS_NOTE}`,
 };
 
 const tiktokHashtagsField: INodeProperties = {
@@ -410,7 +410,7 @@ const tiktokHashtagsField: INodeProperties = {
 	type: 'string',
 	default: '',
 	placeholder: 'e.g. skincare, #სილამაზე',
-	description: `Up to 10 hashtags to watch on TikTok, separated by commas or new lines, in any script (skincare, #სილამაზე or a tiktok.com/tag/… URL). Each run reads TikTok Posts per Run posts of each hashtag ($0.00207 a post). The API returns them without #. ${HASHTAGS_NOTE}`,
+	description: `Up to 10 hashtags to watch on TikTok, separated by commas or new lines, in any script (skincare, #სილამაზე or a tiktok.com/tag/… URL). Each run reads TikTok Posts per Run posts of each hashtag, billed as one read ($0.003 a hashtag per run). The API returns them without #. ${HASHTAGS_NOTE}`,
 };
 
 const tiktokCountField: INodeProperties = {
@@ -423,7 +423,7 @@ const tiktokCountField: INodeProperties = {
 		{ name: '30', value: 30 },
 	],
 	default: 10,
-	description: `Posts each run reads from TikTok ($0.00207 a post). With TikTok Accounts or TikTok Hashtags, this many from each account and each hashtag. ${TIKTOK_NOTE}`,
+	description: `Posts each run reads from TikTok. With TikTok Accounts or TikTok Hashtags, this many from each account and each hashtag. Billed per read, not per post: one read ($0.003) per search, account or hashtag; an empty or private account takes two. ${TIKTOK_NOTE}`,
 };
 
 const xAccountsField: INodeProperties = {

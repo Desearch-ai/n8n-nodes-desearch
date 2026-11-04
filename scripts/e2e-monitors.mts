@@ -598,8 +598,9 @@ const FACEBOOK_REASON = 'options.facebook.pages';
 
 /** Instagram, Facebook and Meta ads sources, and Threads accounts (desearch-public-api#644). */
 async function socialSources(): Promise<void> {
-	// Contract prices: an Instagram account is 12 posts ($0.02484), a Facebook page 10 posts
-	// ($0.0207), 30 Meta ads $0.0621 (10 are $0.0207) and a Threads account one request ($0.00207).
+	// Contract prices: an Instagram account, a Facebook page and the Meta Ad Library search (whatever
+	// Meta Ads per Run) are one read each at $3.00 per 1,000 reads; a Threads account is one request
+	// ($0.00207).
 	const estimate = {
 		operation: 'estimate',
 		sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
@@ -612,9 +613,9 @@ async function socialSources(): Promise<void> {
 		},
 	};
 	const expected: Record<string, number> = {
-		instagram: 0.04968,
-		facebook: 0.0207,
-		meta_ads: 0.0621,
+		instagram: 0.006,
+		facebook: 0.003,
+		meta_ads: 0.003,
 		threads: 0.00207,
 	};
 	try {

@@ -443,9 +443,9 @@ describe('Monitor > Estimate Cost with watched accounts', () => {
 describe('Monitor > Estimate Cost with Instagram, Facebook, Meta Ads and Threads', () => {
 	it('sends the accounts, pages and Meta ads per run, and outputs the breakdown', async () => {
 		const breakdown = {
-			instagram: 0.04968,
-			facebook: 0.0207,
-			meta_ads: 0.0621,
+			instagram: 0.006,
+			facebook: 0.003,
+			meta_ads: 0.003,
 			threads: 0.00207,
 			screening: 0.0123,
 		};
