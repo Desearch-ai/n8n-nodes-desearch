@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+- **Desearch Company Search > Company Search > Start** has two new options (Desearch-ai/desearch-public-api#624):
+  - **Search Budget (USD)** (`max_cost_usd`, up to 100, at least Count times the price). It reserves the whole budget, and the search keeps going until it delivers Count or spends the budget instead of stopping at `cost_limit`. Its search effort is charged where the companies delivered do not cover it, even when it finds few companies or none.
+  - **Continue From Task ID** (`continue_from`): the ID of an ended Company Search. The new search leaves out every company that one excluded, delivered or held for review, so it only finds new ones.
+  - Both are sent only when set.
+- The Query description shows how to restrict a search to named companies with their websites ("Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk). Return only those."). The Count and Cancel descriptions mention the budget's effort charge.
+
+### Fixed
+
+- The README said a Company Search that delivers any companies is billed for at least 2. Since 2026-11-02 the minimum is 1 company for both Company Search and Company Enrich. Company Search costs $45 per 1000 companies and Company Enrich $50 per 1000. The node and README do not state a price; they link to https://desearch.ai/pricing.
+
 ## 0.4.0
 
 Full API coverage in the **Desearch** node, plus YouTube, Reddit and Threads. Company Search (0.3.0) is unchanged.
