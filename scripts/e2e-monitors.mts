@@ -647,11 +647,11 @@ async function socialSources(): Promise<void> {
 		return;
 	}
 	await call(
-		'monitor.estimate (Instagram without accounts is not checked; 10 Meta ads by default)',
+		'monitor.estimate (Instagram without accounts is not checked; Meta ads one read whatever the count)',
 		{ operation: 'estimate', sources: ['instagram', 'meta_ads'], interval: '1d' },
 		one((item) => {
 			const breakdown = (item.breakdown ?? {}) as IDataObject;
-			return usd(breakdown.meta_ads, 0.0207)
+			return usd(breakdown.meta_ads, 0.003)
 				? undefined
 				: `breakdown is ${JSON.stringify(breakdown)}`;
 		}),
