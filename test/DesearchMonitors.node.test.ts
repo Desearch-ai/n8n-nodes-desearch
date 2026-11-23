@@ -1,0 +1,1176 @@
+import {
+	NodeApiError,
+	type IDataObject,
+	type IExecuteFunctions,
+	type IHttpRequestOptions,
+	type INodeParameters,
+} from 'n8n-workflow';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+	createExecuteContext as createPeopleExecuteContext,
+	describeRequest,
+	monitorsNode,
+	response,
+	type HttpHandler,
+} from './helpers';
+
+// A fake clock: sleep() advances it instead of waiting.
+const clock = vi.hoisted(() => ({ now: 0, sleeps: [] as number[] }));
+
+vi.mock('n8n-workflow', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('n8n-workflow')>();
+	return {
+		...actual,
+		sleep: vi.fn(async (ms: number) => {
+			clock.sleeps.push(ms);
+			clock.now += ms;
+		}),
+	};
+});
+
+beforeEach(() => {
+	clock.now = 1_000_000;
+	clock.sleeps = [];
+	vi.spyOn(Date, 'now').mockImplementation(() => clock.now);
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
+
+const MONITOR_ID = '6f1d0c9e-0d55-4b8e-9a3c-3c4d9b8e2a10';
+const RUN_ID = '0c6a1e2b-5d3f-4a7c-9b8e-1f2d3c4b5a69';
+const MONITOR_PATH = `/desearch/monitors/${MONITOR_ID}`;
+const RUN_PATH = `${MONITOR_PATH}/runs/${RUN_ID}`;
+
+function createExecuteContext(
+	items: INodeParameters | INodeParameters[],
+	options: { http?: HttpHandler; continueOnFail?: boolean; cancelSignal?: AbortSignal } = {},
+) {
+	return createPeopleExecuteContext(items, { ...options, nodeType: monitorsNode });
+}
+
+/** Routes requests by "METHOD path" (query string ignored) to handlers. */
+function api(
+	routes: Record<string, (options: IHttpRequestOptions) => ReturnType<typeof response>>,
+) {
+	return (options: IHttpRequestOptions) => {
+		const key = describeRequest(options).split('?')[0];
+		const route = routes[key];
+		if (!route) throw new Error(`No fake route for ${key}`);
+		return route(options);
+	};
+}
+
+/** The body of the request sent with `method` (the first one). */
+function sentBody(
+	httpRequestWithAuthentication: ReturnType<
+		typeof createExecuteContext
+	>['httpRequestWithAuthentication'],
+	method: string,
+) {
+	const call = httpRequestWithAuthentication.mock.calls.find(
+		([, options]) => options.method === method,
+	);
+	return call?.[1].body;
+}
+
+async function execute(context: IExecuteFunctions) {
+	return await monitorsNode.execute.call(context);
+}
+
+const MONITOR = {
+	monitor_id: MONITOR_ID,
+	query: 'Bittensor subnet launches',
+	sources: ['web', 'x'],
+	options: {
+		x: { count: 20, lang: 'en', min_likes: 5, accounts: ['OpenAI'] },
+		web: { count: 10 },
+		reddit: { subreddits: ['LocalLLaMA'] },
+		tiktok: { count: 10, accounts: ['openai'] },
+	},
+	webhook: {
+		url: 'https://example.com/hooks/desearch',
+		events: ['monitor.items.found', 'monitor.run.completed'],
+		consecutive_failures: 1,
+		last_delivery: {
+			event: 'monitor.items.found',
+			status: 'pending',
+			attempts: 1,
+			status_code: 503,
+			error: 'HTTP 503',
+			created_at: '2026-11-04T09:00:41Z',
+			next_attempt_at: '2026-11-04T09:01:41Z',
+			delivered_at: null,
+		},
+	},
+};
+
+/** A monitor on the sources that watch accounts and pages, and Meta ads. */
+const SOCIAL_MONITOR = {
+	...MONITOR,
+	sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+	options: {
+		instagram: { accounts: ['natgeo'] },
+		facebook: { pages: ['NASA'] },
+		meta_ads: { count: 10 },
+		threads: { accounts: ['zuck'] },
+	},
+};
+
+const INSTAGRAM_422 =
+	'Instagram watches accounts or hashtags: add at least one in options.instagram.accounts or options.instagram.hashtags';
+
+describe('Monitor > Create', () => {
+	it('posts the query, sources, schedule, options and webhook and returns the monitor', async () => {
+		const { context, httpRequestWithAuthentication, requests } = createExecuteContext(
+			{
+				operation: 'create',
+				query: '  Bittensor subnet launches and updates ',
+				sources: ['web', 'x', 'reddit', 'x'],
+				interval: '6h',
+				createOptions: {
+					name: ' Bittensor news ',
+					criteria: 'Announces a new subnet, release or partnership\n\n Names the subnet number ',
+					minScore: 70,
+					summary: true,
+					webCount: 20,
+					xCount: 50,
+					xLang: ' en ',
+					xMinLikes: 10,
+					webhookUrl: ' https://example.com/hooks/desearch ',
+					webhookEvents: ['monitor.items.found', 'monitor.run.failed'],
+					metadata: { label: [{ key: 'team', value: 'growth' }] },
+					runNow: false,
+				},
+			},
+			{
+				http: api({
+					'POST /desearch/monitors': () =>
+						response({ monitor_id: MONITOR_ID, webhook_secret: 'whsec_abc' }, 201),
+				}),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output).toEqual([
+			{ json: { monitor_id: MONITOR_ID, webhook_secret: 'whsec_abc' }, pairedItem: { item: 0 } },
+		]);
+		expect(requests()).toEqual(['POST /desearch/monitors']);
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'Bittensor subnet launches and updates',
+			sources: ['web', 'x', 'reddit'],
+			interval: '6h',
+			name: 'Bittensor news',
+			criteria: ['Announces a new subnet, release or partnership', 'Names the subnet number'],
+			options: { web: { count: 20 }, x: { count: 50, lang: 'en', min_likes: 10 } },
+			min_score: 70,
+			summary: true,
+			webhook: {
+				url: 'https://example.com/hooks/desearch',
+				events: ['monitor.items.found', 'monitor.run.failed'],
+			},
+			metadata: { team: 'growth' },
+			run_now: false,
+		});
+	});
+
+	it('sends only the query, the default sources and the daily interval by default', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{ operation: 'create', query: 'OpenAI launches' },
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'OpenAI launches',
+			sources: ['web', 'x'],
+			interval: '1d',
+		});
+	});
+
+	it('sends a webhook without events so the API applies its default events', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'create',
+				query: 'OpenAI launches',
+				createOptions: { webhookUrl: 'https://example.com/h' },
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect((sentBody(httpRequestWithAuthentication, 'POST') as IDataObject).webhook).toEqual({
+			url: 'https://example.com/h',
+		});
+	});
+
+	it('sends TikTok and the watched accounts of each source as typed, without duplicates', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'create',
+				query: 'OpenAI announcements',
+				sources: ['x', 'reddit', 'youtube', 'tiktok'],
+				createOptions: {
+					minScore: 0,
+					xAccounts: '@OpenAI, https://x.com/AnthropicAI\n@OpenAI',
+					redditSubreddits: 'r/LocalLLaMA, https://www.reddit.com/r/OpenAI/',
+					youtubeChannels: '@OpenAI\nUCXZCJLdBC09xxGZ6gcdrc6A',
+					tiktokAccounts: '@openai',
+					tiktokCount: 30,
+					xLang: 'en',
+				},
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'OpenAI announcements',
+			sources: ['x', 'reddit', 'youtube', 'tiktok'],
+			interval: '1d',
+			min_score: 0,
+			options: {
+				x: { lang: 'en', accounts: ['@OpenAI', 'https://x.com/AnthropicAI'] },
+				reddit: { subreddits: ['r/LocalLLaMA', 'https://www.reddit.com/r/OpenAI/'] },
+				youtube: { channels: ['@OpenAI', 'UCXZCJLdBC09xxGZ6gcdrc6A'] },
+				tiktok: { count: 30, accounts: ['@openai'] },
+			},
+		});
+	});
+
+	it('sends Instagram accounts, Facebook pages, Meta ads per run and Threads accounts as typed', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'create',
+				query: 'ChatGPT',
+				sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+				createOptions: {
+					instagramAccounts: '@natgeo, https://www.instagram.com/openai/',
+					facebookPages: 'NASA\nhttps://www.facebook.com/profile.php?id=100064869009429\nNASA',
+					metaAdsCount: 30,
+					threadsAccounts: '@zuck',
+				},
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'ChatGPT',
+			sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+			interval: '1d',
+			options: {
+				instagram: { accounts: ['@natgeo', 'https://www.instagram.com/openai/'] },
+				facebook: { pages: ['NASA', 'https://www.facebook.com/profile.php?id=100064869009429'] },
+				meta_ads: { count: 30 },
+				threads: { accounts: ['@zuck'] },
+			},
+		});
+	});
+
+	it('sends TikTok and Instagram hashtags as typed, without duplicates, and Instagram with hashtags alone', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'create',
+				query: 'Posts about our skincare brand',
+				sources: ['tiktok', 'instagram'],
+				createOptions: {
+					minScore: 0,
+					tiktokAccounts: '@openai',
+					tiktokHashtags: '#სილამაზე, https://www.tiktok.com/tag/skincare\n#სილამაზე',
+					instagramHashtags: 'https://www.instagram.com/explore/tags/skincare/\nსილამაზე',
+				},
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'Posts about our skincare brand',
+			sources: ['tiktok', 'instagram'],
+			interval: '1d',
+			min_score: 0,
+			options: {
+				tiktok: { accounts: ['@openai'], hashtags: ['#სილამაზე', 'https://www.tiktok.com/tag/skincare'] },
+				instagram: { hashtags: ['https://www.instagram.com/explore/tags/skincare/', 'სილამაზე'] },
+			},
+		});
+	});
+
+	it('leaves Instagram without accounts to the API, which refuses it with a 422', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{ operation: 'create', query: 'National Geographic photos', sources: ['instagram'] },
+			{
+				http: () =>
+					response(
+						{
+							detail: [
+								{ type: 'value_error', loc: ['body'], msg: `Value error, ${INSTAGRAM_422}` },
+							],
+						},
+						422,
+					),
+			},
+		);
+
+		const error = await execute(context).catch((e: unknown) => e);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			query: 'National Geographic photos',
+			sources: ['instagram'],
+			interval: '1d',
+		});
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).httpCode).toBe('422');
+		expect((error as NodeApiError).description).toBe(`Value error, ${INSTAGRAM_422}`);
+	});
+
+	it('leaves empty account fields out of Create', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'create',
+				query: 'OpenAI launches',
+				createOptions: {
+					xAccounts: ' ',
+					tiktokAccounts: '',
+					tiktokHashtags: ' ',
+					instagramAccounts: '',
+					instagramHashtags: '',
+					facebookPages: ' \n ',
+					threadsAccounts: '',
+				},
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID }, 201) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).not.toHaveProperty('options');
+	});
+
+	it('refuses more than 5 criteria without calling the API', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext({
+			operation: 'create',
+			query: 'OpenAI launches',
+			createOptions: { criteria: 'a\nb\nc\nd\ne\nf' },
+		});
+
+		await expect(execute(context)).rejects.toThrow('Too many criteria (6)');
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it('refuses an empty source list without calling the API', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext({
+			operation: 'create',
+			query: 'OpenAI launches',
+			sources: [],
+		});
+
+		await expect(execute(context)).rejects.toThrow('Sources is empty');
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+});
+
+describe('Monitor > Estimate Cost', () => {
+	it('posts the sources, interval and cost options', async () => {
+		const { context, httpRequestWithAuthentication, requests } = createExecuteContext(
+			{
+				operation: 'estimate',
+				sources: ['x', 'youtube'],
+				interval: '1h',
+				estimateOptions: { summary: true, xCount: 100 },
+			},
+			{
+				http: () =>
+					response({
+						max_run_cost_usd: 0.0098,
+						runs_per_month: 720,
+						max_monthly_cost_usd: 7.06,
+						breakdown: { x: 0.004 },
+					}),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json.runs_per_month).toBe(720);
+		expect(requests()).toEqual(['POST /desearch/monitors/estimate']);
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			sources: ['x', 'youtube'],
+			interval: '1h',
+			options: { x: { count: 100 } },
+			summary: true,
+		});
+	});
+});
+
+describe('Monitor > Estimate Cost with watched accounts', () => {
+	it('sends the accounts and TikTok posts per run, which change the cost', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'estimate',
+				sources: ['x', 'tiktok'],
+				estimateOptions: {
+					xAccounts: 'OpenAI, AnthropicAI',
+					tiktokAccounts: 'openai',
+					tiktokCount: 20,
+				},
+			},
+			{ http: () => response({ max_run_cost_usd: 0.05 }) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			sources: ['x', 'tiktok'],
+			interval: '1d',
+			options: {
+				x: { accounts: ['OpenAI', 'AnthropicAI'] },
+				tiktok: { count: 20, accounts: ['openai'] },
+			},
+		});
+	});
+});
+
+describe('Monitor > Estimate Cost with Instagram, Facebook, Meta Ads and Threads', () => {
+	it('sends the accounts, pages and Meta ads per run, and outputs the breakdown', async () => {
+		const breakdown = {
+			instagram: 0.006,
+			facebook: 0.003,
+			meta_ads: 0.003,
+			threads: 0.00207,
+			screening: 0.0123,
+		};
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'estimate',
+				sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+				estimateOptions: {
+					instagramAccounts: 'natgeo, openai',
+					facebookPages: 'NASA',
+					metaAdsCount: 30,
+					threadsAccounts: 'zuck',
+				},
+			},
+			{
+				http: () =>
+					response({
+						max_run_cost_usd: 0.14685,
+						runs_per_month: 30,
+						max_monthly_cost_usd: 4.4055,
+						breakdown,
+					}),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json.breakdown).toEqual(breakdown);
+		expect(sentBody(httpRequestWithAuthentication, 'POST')).toEqual({
+			sources: ['instagram', 'facebook', 'meta_ads', 'threads'],
+			interval: '1d',
+			options: {
+				instagram: { accounts: ['natgeo', 'openai'] },
+				facebook: { pages: ['NASA'] },
+				meta_ads: { count: 30 },
+				threads: { accounts: ['zuck'] },
+			},
+		});
+	});
+});
+
+describe('Monitor > Get Many', () => {
+	it('lists monitors with a status filter across pages, one item per monitor', async () => {
+		const pages: Record<string, IDataObject> = {
+			start: { monitors: [{ monitor_id: 'm1' }, { monitor_id: 'm2' }], next_cursor: 'n1' },
+			n1: { monitors: [{ monitor_id: 'm3' }], next_cursor: null },
+		};
+		const { context, requests } = createExecuteContext(
+			{
+				operation: 'getAll',
+				returnAll: true,
+				monitorFilters: { status: ['active', 'paused'] },
+			},
+			{ http: (options) => response(pages[String(options.qs?.cursor ?? 'start')]) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(output.map((item) => item.json.monitor_id)).toEqual(['m1', 'm2', 'm3']);
+		expect(requests()).toEqual([
+			'GET /desearch/monitors?status=active%2Cpaused&limit=100',
+			'GET /desearch/monitors?status=active%2Cpaused&limit=100&cursor=n1',
+		]);
+	});
+
+	it('stops at Limit', async () => {
+		const { context, requests } = createExecuteContext(
+			{ operation: 'getAll', limit: 2 },
+			{
+				http: () =>
+					response({
+						monitors: [{ monitor_id: 'm1' }, { monitor_id: 'm2' }],
+						next_cursor: 'n1',
+					}),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output).toHaveLength(2);
+		expect(requests()).toEqual(['GET /desearch/monitors?limit=2']);
+	});
+});
+
+describe('Monitor > Get, Delete, Trigger Run, Test Webhook, Rotate Webhook Secret', () => {
+	it.each([
+		['get', `GET ${MONITOR_PATH}`],
+		['delete', `DELETE ${MONITOR_PATH}`],
+		['trigger', `POST ${MONITOR_PATH}/trigger`],
+		['testWebhook', `POST ${MONITOR_PATH}/webhook/test`],
+		['rotateWebhookSecret', `POST ${MONITOR_PATH}/webhook/rotate-secret`],
+	])('%s calls %s and returns the response', async (operation, request) => {
+		const { context, requests } = createExecuteContext(
+			{ operation, monitorId: ` ${MONITOR_ID} ` },
+			{ http: () => response({ ok: operation }) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(output).toEqual([{ json: { ok: operation }, pairedItem: { item: 0 } }]);
+		expect(requests()).toEqual([request]);
+	});
+
+	it("Get outputs the webhook's delivery status as the API returns it", async () => {
+		const { context } = createExecuteContext(
+			{ operation: 'get', monitorId: MONITOR_ID },
+			{ http: () => response(MONITOR) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json.webhook).toEqual(MONITOR.webhook);
+		expect((output[0].json.webhook as IDataObject).last_delivery).toEqual(
+			MONITOR.webhook.last_delivery,
+		);
+	});
+
+	it('URL-encodes the monitor ID', async () => {
+		const { context, requests } = createExecuteContext(
+			{ operation: 'get', monitorId: 'a/b c' },
+			{ http: () => response({}) },
+		);
+
+		await execute(context);
+
+		expect(requests()).toEqual(['GET /desearch/monitors/a%2Fb%20c']);
+	});
+
+	it('fails on an empty monitor ID without calling the API', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext({
+			operation: 'trigger',
+			monitorId: '  ',
+		});
+
+		await expect(execute(context)).rejects.toThrow('Monitor ID is empty');
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+});
+
+describe('Monitor > Update', () => {
+	it('patches only the fields that are set, without reading the monitor first', async () => {
+		const { context, httpRequestWithAuthentication, requests } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: {
+					name: 'Renamed',
+					status: 'paused',
+					interval: '12h',
+					sources: ['reddit'],
+					minScore: 80,
+					summary: false,
+					metadata: { label: [{ key: 'team', value: 'sales' }] },
+				},
+			},
+			{ http: () => response({ monitor_id: MONITOR_ID, status: 'paused' }) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json.status).toBe('paused');
+		expect(requests()).toEqual([`PATCH ${MONITOR_PATH}`]);
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
+			name: 'Renamed',
+			sources: ['reddit'],
+			interval: '12h',
+			status: 'paused',
+			min_score: 80,
+			summary: false,
+			metadata: { team: 'sales' },
+		});
+	});
+
+	it('clears criteria and metadata when they are set but empty', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: { criteria: '', metadata: {} },
+			},
+			{ http: () => response({}) },
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
+			criteria: [],
+			metadata: {},
+		});
+	});
+
+	it('keeps the per-source options it does not change, since the API replaces them all', async () => {
+		const { context, httpRequestWithAuthentication, requests } = createExecuteContext(
+			{ operation: 'update', monitorId: MONITOR_ID, updateFields: { xCount: 50 } },
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response(MONITOR),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(requests()).toEqual([`GET ${MONITOR_PATH}`, `PATCH ${MONITOR_PATH}`]);
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
+			options: {
+				x: { count: 50, lang: 'en', min_likes: 5, accounts: ['OpenAI'] },
+				web: { count: 10 },
+				reddit: { subreddits: ['LocalLLaMA'] },
+				tiktok: { count: 10, accounts: ['openai'] },
+			},
+		});
+	});
+
+	it('merges new watched accounts into the options of each source', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: {
+					youtubeChannels: '@OpenAI',
+					tiktokCount: 20,
+					xAccounts: 'OpenAI, AnthropicAI',
+				},
+			},
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response(MONITOR),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
+			options: {
+				x: { count: 20, lang: 'en', min_likes: 5, accounts: ['OpenAI', 'AnthropicAI'] },
+				web: { count: 10 },
+				reddit: { subreddits: ['LocalLLaMA'] },
+				youtube: { channels: ['@OpenAI'] },
+				tiktok: { count: 20, accounts: ['openai'] },
+			},
+		});
+	});
+
+	it("stops watching a source's accounts when its field is set but empty", async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{ operation: 'update', monitorId: MONITOR_ID, updateFields: { redditSubreddits: '' } },
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response(MONITOR),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(
+			((sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject).options as IDataObject)
+				.reddit,
+		).toEqual({ subreddits: [] });
+	});
+
+	it('stops watching hashtags when the field is set but empty, and keeps the accounts', async () => {
+		const current = {
+			...MONITOR,
+			sources: ['tiktok'],
+			options: { tiktok: { count: 10, accounts: ['openai'], hashtags: ['skincare'] } },
+		};
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{ operation: 'update', monitorId: MONITOR_ID, updateFields: { tiktokHashtags: '' } },
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(current),
+					[`PATCH ${MONITOR_PATH}`]: () => response(current),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(
+			((sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject).options as IDataObject)
+				.tiktok,
+		).toEqual({ count: 10, accounts: ['openai'], hashtags: [] });
+	});
+
+	it('merges Instagram accounts, Meta ads per run and Threads accounts into the current options', async () => {
+		const { context, httpRequestWithAuthentication, requests } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: {
+					instagramAccounts: 'natgeo\nopenai',
+					metaAdsCount: 20,
+					threadsAccounts: 'zuck, @openai',
+				},
+			},
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(SOCIAL_MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response(SOCIAL_MONITOR),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(requests()).toEqual([`GET ${MONITOR_PATH}`, `PATCH ${MONITOR_PATH}`]);
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
+			options: {
+				instagram: { accounts: ['natgeo', 'openai'] },
+				facebook: { pages: ['NASA'] },
+				meta_ads: { count: 20 },
+				threads: { accounts: ['zuck', '@openai'] },
+			},
+		});
+	});
+
+	it('adds Facebook with its pages in one update', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: { sources: ['web', 'facebook'], facebookPages: 'NASA, 100064869009429' },
+			},
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response(MONITOR),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		const body = sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject;
+		expect(body.sources).toEqual(['web', 'facebook']);
+		expect((body.options as IDataObject).facebook).toEqual({ pages: ['NASA', '100064869009429'] });
+		expect((body.options as IDataObject).x).toEqual(MONITOR.options.x);
+	});
+
+	it('sends empty Instagram Accounts, which the API refuses while Instagram is a source', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{ operation: 'update', monitorId: MONITOR_ID, updateFields: { instagramAccounts: '' } },
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(SOCIAL_MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response({ detail: INSTAGRAM_422 }, 422),
+				}),
+			},
+		);
+
+		const error = await execute(context).catch((e: unknown) => e);
+
+		expect(
+			((sentBody(httpRequestWithAuthentication, 'PATCH') as IDataObject).options as IDataObject)
+				.instagram,
+		).toEqual({ accounts: [] });
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).httpCode).toBe('422');
+		expect((error as NodeApiError).description).toBe(INSTAGRAM_422);
+	});
+
+	it('keeps the webhook events when only the URL changes', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: { webhookUrl: 'https://example.com/new' },
+			},
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response({ webhook_secret: 'whsec_new' }),
+				}),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json.webhook_secret).toBe('whsec_new');
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
+			webhook: {
+				url: 'https://example.com/new',
+				events: ['monitor.items.found', 'monitor.run.completed'],
+			},
+		});
+	});
+
+	it('keeps the webhook URL when only the events change', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: { webhookEvents: ['monitor.run.failed'] },
+			},
+			{
+				http: api({
+					[`GET ${MONITOR_PATH}`]: () => response(MONITOR),
+					[`PATCH ${MONITOR_PATH}`]: () => response({}),
+				}),
+			},
+		);
+
+		await execute(context);
+
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({
+			webhook: { url: 'https://example.com/hooks/desearch', events: ['monitor.run.failed'] },
+		});
+	});
+
+	it('fails when only events are set on a monitor without a webhook', async () => {
+		const { context, requests } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: { webhookEvents: ['monitor.run.failed'] },
+			},
+			{ http: () => response({ ...MONITOR, webhook: null }) },
+		);
+
+		await expect(execute(context)).rejects.toThrow('The monitor has no webhook');
+		expect(requests()).toEqual([`GET ${MONITOR_PATH}`]);
+	});
+
+	it('removes the webhook with webhook: null', async () => {
+		const { context, httpRequestWithAuthentication, requests } = createExecuteContext(
+			{
+				operation: 'update',
+				monitorId: MONITOR_ID,
+				updateFields: { removeWebhook: true, webhookUrl: 'https://ignored.example.com' },
+			},
+			{ http: () => response({ webhook: null }) },
+		);
+
+		await execute(context);
+
+		expect(requests()).toEqual([`PATCH ${MONITOR_PATH}`]);
+		expect(sentBody(httpRequestWithAuthentication, 'PATCH')).toEqual({ webhook: null });
+	});
+
+	it('fails when no field is set, without calling the API', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext({
+			operation: 'update',
+			monitorId: MONITOR_ID,
+		});
+
+		await expect(execute(context)).rejects.toThrow('Nothing to update');
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+});
+
+describe('Run', () => {
+	it('Get Many lists the runs of a monitor across pages', async () => {
+		const pages: Record<string, IDataObject> = {
+			start: { runs: [{ run_id: 'r1' }], next_cursor: 'n1' },
+			n1: { runs: [{ run_id: 'r2' }], next_cursor: null },
+		};
+		const { context, requests } = createExecuteContext(
+			{ resource: 'run', operation: 'getAll', monitorId: MONITOR_ID, returnAll: true },
+			{ http: (options) => response(pages[String(options.qs?.cursor ?? 'start')]) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(output.map((item) => item.json.run_id)).toEqual(['r1', 'r2']);
+		expect(requests()).toEqual([
+			`GET ${MONITOR_PATH}/runs?limit=100`,
+			`GET ${MONITOR_PATH}/runs?limit=100&cursor=n1`,
+		]);
+	});
+
+	it('Get returns the run once, without waiting by default', async () => {
+		const { context, requests } = createExecuteContext(
+			{ resource: 'run', operation: 'get', monitorId: MONITOR_ID, runId: RUN_ID },
+			{ http: () => response({ run_id: RUN_ID, status: 'running', items: [] }) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(output).toEqual([
+			{ json: { run_id: RUN_ID, status: 'running', items: [] }, pairedItem: { item: 0 } },
+		]);
+		expect(requests()).toEqual([`GET ${RUN_PATH}`]);
+		expect(clock.sleeps).toEqual([]);
+	});
+
+	it('Get waits until the run completes and can output one item per kept item', async () => {
+		const statuses = ['queued', 'running', 'completed'];
+		let call = 0;
+		const { context, requests } = createExecuteContext(
+			{
+				resource: 'run',
+				operation: 'get',
+				monitorId: MONITOR_ID,
+				runId: RUN_ID,
+				waitForCompletion: true,
+				pollInterval: 5,
+				output: 'items',
+			},
+			{
+				http: () => {
+					const status = statuses[Math.min(call++, statuses.length - 1)];
+					return response({
+						run_id: RUN_ID,
+						status,
+						items: status === 'completed' ? [{ item_id: '2' }, { item_id: '1' }] : [],
+					});
+				},
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output.map((item) => item.json.item_id)).toEqual(['2', '1']);
+		expect(requests()).toHaveLength(3);
+		expect(clock.sleeps).toEqual([5000, 5000]);
+	});
+
+	it('Get fails with the reason when the run failed', async () => {
+		const { context } = createExecuteContext(
+			{
+				resource: 'run',
+				operation: 'get',
+				monitorId: MONITOR_ID,
+				runId: RUN_ID,
+				waitForCompletion: true,
+			},
+			{
+				http: () =>
+					response({ run_id: RUN_ID, status: 'failed', fail_reason: 'all_sources_failed' }),
+			},
+		);
+
+		const error = await execute(context).catch((e: unknown) => e);
+
+		expect((error as Error).message).toBe('The monitor run failed');
+		expect((error as { description?: string }).description).toContain('all_sources_failed');
+	});
+
+	it('Get fails with the status when the run does not end in time', async () => {
+		const { context } = createExecuteContext(
+			{
+				resource: 'run',
+				operation: 'get',
+				monitorId: MONITOR_ID,
+				runId: RUN_ID,
+				waitForCompletion: true,
+				timeout: 20,
+				pollInterval: 10,
+			},
+			{ http: () => response({ run_id: RUN_ID, status: 'running' }) },
+		);
+
+		const error = await execute(context).catch((e: unknown) => e);
+
+		expect((error as Error).message).toBe('The monitor run did not finish within 20 seconds');
+		expect((error as { description?: string }).description).toContain('is running');
+	});
+
+	it('Get stops when the execution is cancelled', async () => {
+		const controller = new AbortController();
+		controller.abort();
+		const { context, httpRequestWithAuthentication } = createExecuteContext(
+			{
+				resource: 'run',
+				operation: 'get',
+				monitorId: MONITOR_ID,
+				runId: RUN_ID,
+				waitForCompletion: true,
+			},
+			{ cancelSignal: controller.signal },
+		);
+
+		await expect(execute(context)).rejects.toThrow(/cancelled/);
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it('Get fails on an empty run ID without calling the API', async () => {
+		const { context, httpRequestWithAuthentication } = createExecuteContext({
+			resource: 'run',
+			operation: 'get',
+			monitorId: MONITOR_ID,
+			runId: '',
+		});
+
+		await expect(execute(context)).rejects.toThrow('Run ID is empty');
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+});
+
+describe('Item > Get Many', () => {
+	it('lists the items of one source, newest first, in pages of up to 200', async () => {
+		const { context, requests } = createExecuteContext(
+			{
+				resource: 'item',
+				operation: 'getAll',
+				monitorId: MONITOR_ID,
+				limit: 250,
+				itemFilters: { source: 'youtube' },
+			},
+			{
+				http: (options) => {
+					const first = options.qs?.cursor === undefined;
+					const count = Number(options.qs?.limit);
+					return response({
+						items: Array.from({ length: count }, (_, i) => ({
+							item_id: String(first ? i : 200 + i),
+						})),
+						next_cursor: first ? '1642' : null,
+					});
+				},
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output).toHaveLength(250);
+		expect(requests()).toEqual([
+			`GET ${MONITOR_PATH}/items?source=youtube&limit=200`,
+			`GET ${MONITOR_PATH}/items?source=youtube&limit=50&cursor=1642`,
+		]);
+	});
+
+	it('filters by the TikTok source', async () => {
+		const { context, requests } = createExecuteContext(
+			{
+				resource: 'item',
+				operation: 'getAll',
+				monitorId: MONITOR_ID,
+				itemFilters: { source: 'tiktok' },
+			},
+			{
+				http: () =>
+					response({ items: [{ item_id: '9', data: { account: 'openai' } }], next_cursor: null }),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json.data).toEqual({ account: 'openai' });
+		expect(requests()).toEqual([`GET ${MONITOR_PATH}/items?source=tiktok&limit=50`]);
+	});
+
+	it.each(['instagram', 'facebook', 'meta_ads'])('filters by the %s source', async (source) => {
+		const item = {
+			item_id: 'a1',
+			source,
+			title: 'Try ChatGPT',
+			data: { page: 'OpenAI', active: true, cta: 'Learn more', link: 'https://openai.com' },
+		};
+		const { context, requests } = createExecuteContext(
+			{ resource: 'item', operation: 'getAll', monitorId: MONITOR_ID, itemFilters: { source } },
+			{ http: () => response({ items: [item], next_cursor: null }) },
+		);
+
+		const [output] = await execute(context);
+
+		expect(output[0].json).toEqual(item);
+		expect(requests()).toEqual([`GET ${MONITOR_PATH}/items?source=${source}&limit=50`]);
+	});
+
+	it('sends no source by default', async () => {
+		const { context, requests } = createExecuteContext(
+			{ resource: 'item', operation: 'getAll', monitorId: MONITOR_ID },
+			{ http: () => response({ items: [], next_cursor: null }) },
+		);
+
+		await execute(context);
+
+		expect(requests()).toEqual([`GET ${MONITOR_PATH}/items?limit=50`]);
+	});
+});
+
+describe('errors', () => {
+	it('fails with the API reason as the description', async () => {
+		const { context } = createExecuteContext(
+			{ operation: 'trigger', monitorId: MONITOR_ID },
+			{ http: () => response({ detail: 'This monitor is already running.' }, 409) },
+		);
+
+		const error = await execute(context).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).httpCode).toBe('409');
+		expect((error as NodeApiError).description).toBe('This monitor is already running.');
+	});
+
+	it('with Continue On Fail, outputs the error for the failed item and goes on', async () => {
+		const { context } = createExecuteContext(
+			[
+				{ operation: 'create', query: 'OpenAI launches' },
+				{ operation: 'get', monitorId: MONITOR_ID },
+			],
+			{
+				continueOnFail: true,
+				http: (options) =>
+					options.method === 'POST'
+						? response(
+								{
+									detail:
+										"Your balance can't cover one run of this monitor. Add credits and try again.",
+								},
+								402,
+							)
+						: response({ monitor_id: MONITOR_ID }),
+			},
+		);
+
+		const [output] = await execute(context);
+
+		expect(output).toEqual([
+			{
+				json: {
+					error: 'Payment required - perhaps check your payment details?',
+					description:
+						"Your balance can't cover one run of this monitor. Add credits and try again.",
+				},
+				pairedItem: { item: 0 },
+			},
+			{ json: { monitor_id: MONITOR_ID }, pairedItem: { item: 1 } },
+		]);
+	});
+});

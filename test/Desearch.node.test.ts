@@ -395,6 +395,17 @@ describe('Facebook', () => {
 			reply: response([ad], 200, { [NEXT]: 'f3' }),
 			output: [{ results: [ad], nextCursor: 'f3' }],
 		},
+		'Search Ad Library sends the sort': {
+			parameters: facebook({ query: 'ChatGPT', options: { sort: 'recent' } }),
+			request: {
+				method: 'POST',
+				url: `${API}/desearch/facebook/search`,
+				headers: JSON_HEADERS,
+				body: { query: 'ChatGPT', count: 10, sort: 'recent' },
+			},
+			reply: response([ad]),
+			output: [{ results: [ad], nextCursor: null }],
+		},
 		'Get Post puts the post ID in the path': {
 			parameters: facebook({ operation: 'getPost', postId: '1234567890' }),
 			request: get('/desearch/facebook/post/1234567890'),

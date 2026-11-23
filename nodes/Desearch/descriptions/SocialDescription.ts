@@ -448,6 +448,35 @@ export const socialFields: INodeProperties[] = [
 			},
 		],
 	},
+	{
+		displayName: 'Options',
+		name: 'options',
+		type: 'collection',
+		placeholder: 'Add Option',
+		default: {},
+		displayOptions: show(['facebook'], ['search']),
+		options: [
+			{
+				displayName: 'Sort',
+				name: 'sort',
+				type: 'options',
+				options: [
+					{
+						name: 'Impressions',
+						value: 'impressions',
+						description: 'Most seen ads first (the default)',
+					},
+					{
+						name: 'Recent',
+						value: 'recent',
+						description: "Meta's monthly relevance grouping, which puts recently started ads first",
+					},
+				],
+				default: 'impressions',
+				description: 'Order of the ads (impressions when left out)',
+			},
+		],
+	},
 
 	{
 		displayName: 'Query',

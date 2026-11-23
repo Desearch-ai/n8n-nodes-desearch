@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-desearch",
-  "version": "0.5.0",
-  "description": "AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data, page extraction, people search and company search for AI agents.",
+  "version": "0.6.0",
+  "description": "AI search, web search, X, TikTok, Facebook, Instagram, YouTube, Reddit and Threads data, page extraction, people search, company search and monitors for AI agents.",
   "license": "MIT",
   "homepage": "https://github.com/Desearch-ai/n8n-nodes-desearch",
   "keywords": [
@@ -18,7 +18,8 @@
     "threads",
     "extract",
     "people-search",
-    "company-search"
+    "company-search",
+    "monitors"
   ],
   "author": {
     "name": "Desearch AI",
@@ -37,6 +38,7 @@
     "test": "vitest run",
     "e2e": "npm run build && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/e2e-full-coverage.mts",
     "e2e:yrt": "npm run build && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/e2e-youtube-reddit-threads.mts",
+    "e2e:monitors": "npm run build && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/e2e-monitors.mts",
     "release": "n8n-node release",
     "prepublishOnly": "n8n-node prerelease"
   },
@@ -53,7 +55,8 @@
     "nodes": [
       "dist/nodes/Desearch/Desearch.node.js",
       "dist/nodes/DesearchPeopleSearch/DesearchPeopleSearch.node.js",
-      "dist/nodes/DesearchCompanySearch/DesearchCompanySearch.node.js"
+      "dist/nodes/DesearchCompanySearch/DesearchCompanySearch.node.js",
+      "dist/nodes/DesearchMonitors/DesearchMonitors.node.js"
     ]
   },
   "devDependencies": {

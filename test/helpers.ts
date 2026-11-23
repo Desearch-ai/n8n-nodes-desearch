@@ -11,12 +11,14 @@ import { vi } from 'vitest';
 
 import { Desearch } from '../nodes/Desearch/Desearch.node';
 import { DesearchCompanySearch } from '../nodes/DesearchCompanySearch/DesearchCompanySearch.node';
+import { DesearchMonitors } from '../nodes/DesearchMonitors/DesearchMonitors.node';
 import { DesearchPeopleSearch } from '../nodes/DesearchPeopleSearch/DesearchPeopleSearch.node';
 import { createNodeExecuteContext } from './context';
 
 export const peopleNode = new DesearchPeopleSearch();
 export const searchNode = new Desearch();
 export const companyNode = new DesearchCompanySearch();
+export const monitorsNode = new DesearchMonitors();
 
 export const node: INode = {
 	id: 'people-node',
@@ -122,7 +124,7 @@ type ContextOptions = { http?: HttpHandler; continueOnFail?: boolean; cancelSign
 
 /**
  * A minimal IExecuteFunctions for the People Search node (or `nodeType`, such as the
- * Company Search node): one input item per entry of `items` (its node parameters,
+ * Company Search or Monitors node): one input item per entry of `items` (its node parameters,
  * defaults filled in), authenticated HTTP goes to `http` (no network).
  */
 export function createExecuteContext(
